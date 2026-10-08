@@ -6,7 +6,7 @@ Phone as glass harp, to plays, for many phones in one space.
 ## The question
 1. Does the notes play when tap and hold?
 2. When fingers swirl, does it play a melody?
-
+ 
 ## The experience
 
 Before it starts, the screen is dark, with white circle in the middle. 
