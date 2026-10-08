@@ -1,6 +1,7 @@
 function setup() {
   createCanvas(windowWidth, windowHeight);
   lockGestures();
+  enableSoundTap('Tap to enable sound');
 }
 
 function draw() {
