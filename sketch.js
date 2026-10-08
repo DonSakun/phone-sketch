@@ -3,10 +3,17 @@ let wordsGone = false;
 let osc = null;
 let holding = false;
 let holdPointerId = null;
+let holdBase = 0;
+let currentStep = 0;
 let lastNoteIndex = -1;
 
 // A major pentatonic across the plan's range: A3 B3 C#4 E4 F#4 A4 (220-440 Hz)
 const PENTATONIC = [220, 246.94, 277.18, 329.63, 369.99, 440];
+
+// The 11 steps of the ladder, in semitones from this hold's base note:
+// -5 = circle's left edge (one octave down), 0 = center (base note),
+// +5 = right edge (one octave up). Every rung is a pentatonic step.
+const PENTATONIC_STEPS = [-12, -10, -8, -5, -3, 0, 2, 4, 7, 9, 12];
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -48,6 +55,21 @@ function mousePressed(e) {
   return false;
 }
 
+// While holding, horizontal position picks the pentatonic step; the note
+// slides ~100 ms to the new step and holds there until the finger moves
+// to another step. Vertical position is ignored. Other fingers ignored.
+function mouseDragged(e) {
+  if (!holding) return false;
+  if (e && e.pointerId !== undefined && holdPointerId !== null && e.pointerId !== holdPointerId) return false;
+
+  const step = stepAt(mouseX);
+  if (step !== currentStep) {
+    currentStep = step;
+    osc.freq(stepFreq(step), 0.1); // ~100 ms slide between steps
+  }
+  return false;
+}
+
 // Lift (or a system cancel of the held finger) -> silence. A second
 // finger lifting changes nothing.
 function mouseReleased(e) {
@@ -65,12 +87,24 @@ function startNote() {
     osc.amp(0, 0);   // start silent, no ramp
     osc.start();
   }
-  osc.freq(pickNote());   // base note, instant
-  osc.amp(0.3, 0.03);     // ~30 ms fade-in, no click
+  holdBase = pickNote();
+  currentStep = stepAt(mouseX);
+  osc.freq(stepFreq(currentStep)); // instant, at the pressed position
+  osc.amp(0.3, 0.03);              // ~30 ms fade-in, no click
 }
 
 function stopNote() {
   if (osc) osc.amp(0, 0.03); // quick fade-out, no click
+}
+
+// Horizontal position -> one of the 11 steps across the circle.
+function stepAt(x) {
+  const r = circleDiameter() / 2;
+  return constrain(round(map(x, width / 2 - r, width / 2 + r, -5, 5)), -5, 5);
+}
+
+function stepFreq(step) {
+  return holdBase * pow(2, PENTATONIC_STEPS[step + 5] / 12);
 }
 
 // Random base note, never the same twice in a row.
