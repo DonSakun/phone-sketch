@@ -18,6 +18,7 @@ const PENTATONIC_STEPS = [-12, -10, -8, -5, -3, 0, 2, 4, 7, 9, 12];
 function setup() {
   createCanvas(windowWidth, windowHeight);
   lockGestures();
+  blockSelection();
   enableSoundTap('Tap to enable sound');
 }
 
@@ -137,4 +138,21 @@ function circleDiameter() {
 // full-screen, so the black still reaches every edge.
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+}
+
+// iPhone: holding a finger shows the magnifier and starts selecting the
+// page. lockGestures() blocks long-press menus, but iOS text selection is
+// a separate mechanism, so turn it off for the whole page. Nothing on this
+// screen is text to select. The CSS is injected from here so index.html
+// keeps only its agreed p5.sound line.
+function blockSelection() {
+  const style = document.createElement('style');
+  style.textContent =
+    '*, *::before, *::after {' +
+    ' -webkit-user-select: none; user-select: none;' +
+    ' -webkit-touch-callout: none;' +
+    ' -webkit-tap-highlight-color: transparent;' +
+    '}';
+  document.head.appendChild(style);
+  document.addEventListener('selectstart', (e) => e.preventDefault());
 }
