@@ -62,6 +62,15 @@ function mouseDragged(e) {
   if (!holding) return false;
   if (e && e.pointerId !== undefined && holdPointerId !== null && e.pointerId !== holdPointerId) return false;
 
+  // Slid outside the circle: the touch is undetected -> the note stops
+  // right away. Re-entering does not start it again; only a new tap
+  // inside the circle and hold does (mousePressed, !holding).
+  if (dist(mouseX, mouseY, width / 2, height / 2) > circleDiameter() / 2) {
+    holding = false;
+    stopNote();
+    return false;
+  }
+
   const step = stepAt(mouseX);
   if (step !== currentStep) {
     currentStep = step;
