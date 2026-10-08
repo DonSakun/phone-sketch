@@ -11,7 +11,7 @@ Phone as glass harp, to plays, for many phones in one space.
 
 Before it starts, the screen is dark, with white circle in the middle. 
 Touch only detect within the circle.
-With the small words "tap and hold"
+With the small words "tap inside the circle and hold"
 near the bottom. The words go away on the first tap.
 
 When one person tap and hold within the circle, play a note at random.
