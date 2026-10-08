@@ -70,8 +70,8 @@ If the held finger slides outside the circle, the touch is undetected → the no
 *Check on your phone:* slide out → silence; slide back in → still silent; lift, then tap inside and hold → the note returns.
 
 **Step 7 — Laptop fallback**
-On the laptop the same code runs: click inside the circle and hold = tap inside the circle and hold, moving the mouse = moving the touch, release = stop. No extra code.
-*Check on your laptop:* hold = tone, move = pitch steps, release = silence.
+On the laptop the same code runs: click inside the circle and hold = tap inside the circle and hold, moving the mouse = moving the touch, release = stop. No extra code was expected, but two laptop guards were needed (user-authorized override): only a left click counts as a tap (a right/middle press — trackpad two-finger tap — must not start a note), and `windowResized()` keeps the canvas full-screen when the window is resized, so the black still reaches every edge.
+*Check on your laptop:* hold = tone, move = pitch steps, release = silence; right-click inside the circle = nothing; drag a window edge to resize → still black edge to edge with the circle centered and the words still gone.
 
 <!-- The nine agreed assumptions are baked into the steps: p5.sound line in index.html (Steps 1-2), pentatonic scale (Steps 4-5), sine with ~30 ms fade-in (Step 4), horizontal mapping with center = base and ±1 octave (Step 5), hint text "tap inside the circle and hold" (Steps 1, 3), first tap = first tap inside the circle (Step 3), leaving the circle stops the note (Step 6), one finger only (Step 4), no visual feedback (Steps 1, 5), ~100 ms glide (Step 5). -->
 

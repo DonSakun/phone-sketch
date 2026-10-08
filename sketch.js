@@ -44,6 +44,9 @@ function draw() {
 // Return false so p5-phone keeps handling the gesture.
 function mousePressed(e) {
   if (e && e.target && e.target !== document.querySelector('canvas')) return false;
+  // Laptop: only a left click counts as a tap. A right/middle press
+  // (trackpad two-finger tap, right-click) must not start a note.
+  if (e && e.button !== undefined && e.button !== 0) return false;
   if (dist(mouseX, mouseY, width / 2, height / 2) > circleDiameter() / 2) return false;
 
   wordsGone = true;
@@ -128,4 +131,10 @@ function pickNote() {
 
 function circleDiameter() {
   return min(width * 0.78, height * 0.72);
+}
+
+// Laptop window resized (or the phone's URL bar hides) -> keep the canvas
+// full-screen, so the black still reaches every edge.
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
 }
