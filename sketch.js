@@ -53,7 +53,7 @@ function liquidTriangle() {
     { x: 0.115 * width, y: 0.262 * height },
     { x: 0.885 * width, y: 0.262 * height },
     { x: 0.5 * width, y: 0.545 * height },
-  ];
+  ]; 
 }
 
 function drawHint() {
