@@ -2,7 +2,7 @@
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
 // inside-grey counts / outside fades (7), the drink is done (8),
-// replay on the full glass (9), reload resets (10).
+// replay on the full glass (9), reload resets (10), laptop fallback (11).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
@@ -300,6 +300,12 @@ function advanceReplay() {
     replaying = false;
     osc.amp(0, 0.05); // silence when the sweep ends
   }
+}
+
+// Keep the canvas full-screen when the window changes size, so the
+// black still reaches every edge (reused verbatim from Glass Harp).
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
 }
 
 // iPhone: holding a finger shows the magnifier and starts selecting the
