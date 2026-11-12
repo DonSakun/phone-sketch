@@ -1,12 +1,28 @@
 // Making a drink — V1
-// Steps so far: the screen (1), sound unlock (2), words disappearing (3).
-// Layout approximates references/drink-layout.png.
+// Steps so far: the screen (1), sound unlock (2), words disappearing (3),
+// note on hold (4). Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
+
+let osc = null;
+let holding = false;
+let holdPointerId = null;
+let currentStep = 0;
+
+// The 11 pentatonic steps of the ladder, in semitones from the base note:
+// -5 = screen's left edge (one octave down), 0 = center (base note),
+// +5 = right edge (one octave up). Every rung is a pentatonic step.
+const PENTATONIC_STEPS = [-12, -10, -8, -5, -3, 0, 2, 4, 7, 9, 12];
+
+// Fixed base note A3 — the pitch comes only from finger position (it
+// "looks random" but is really position-driven), which is also what
+// Step 6's hue wheel maps across: 110-440 Hz in total.
+const BASE_FREQ = 220;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   lockGestures();
+  blockSelection();
   enableSoundTap('Tap to enable sound');
 }
 
@@ -66,13 +82,78 @@ function drawHint() {
   text('tap anywhere to pour a drink', width / 2, height * 0.1);
 }
 
-// The first tap anywhere on the canvas removes the words for good. The
-// sound-enable box tap doesn't count (its target is the overlay, not the
-// canvas), so the words survive until the first real touch — a bug that
-// testing caught in Glass Harp. Return false so p5-phone keeps handling
-// the gesture.
+// Tap anywhere and hold: remove the words (first tap only, for good) and
+// start one note at the touched position. The sound-enable box tap doesn't
+// count (its target is the overlay, not the canvas), so the words survive
+// until the first real touch — a bug that testing caught in Glass Harp.
+// Laptop: only a left click counts as a tap; right/middle must not start
+// a note. Only the first finger counts; extra fingers are ignored.
+// Return false so p5-phone keeps handling the gesture.
 function mousePressed(e) {
   if (e && e.target && e.target !== document.querySelector('canvas')) return false;
+  if (e && e.button !== undefined && e.button !== 0) return false;
   wordsGone = true;
+  if (!holding) {
+    holding = true;
+    holdPointerId = e && e.pointerId !== undefined ? e.pointerId : null;
+    startNote();
+  }
   return false;
+}
+
+// Lift (or a system cancel of the held finger) -> silence. A second
+// finger lifting changes nothing.
+function mouseReleased(e) {
+  const id = e && e.pointerId !== undefined ? e.pointerId : null;
+  if (holding && (id === null || holdPointerId === null || id === holdPointerId)) {
+    holding = false;
+    stopNote();
+  }
+  return false;
+}
+
+// The note: a sine at the pressed position, fading in over ~30 ms so it
+// starts without a click. The same oscillator is reused for every note.
+function startNote() {
+  if (!osc) {
+    osc = new p5.Oscillator('sine');
+    osc.amp(0, 0);   // start silent, no ramp
+    osc.start();
+  }
+  currentStep = stepAt(mouseX);
+  osc.freq(stepFreq(currentStep)); // instant, at the pressed position
+  osc.amp(0.3, 0.03);              // ~30 ms fade-in, no click
+}
+
+function stopNote() {
+  if (osc) osc.amp(0, 0.03); // quick fade-out, no click
+}
+
+// Horizontal position -> one of the 11 pentatonic steps across the whole
+// screen: far left = lowest note, far right = highest. Vertical position
+// is ignored (Step 5 adds the slide between steps; a still finger holds
+// the pitch it started with).
+function stepAt(x) {
+  return constrain(round(map(x, 0, width, -5, 5)), -5, 5);
+}
+
+function stepFreq(step) {
+  return BASE_FREQ * pow(2, PENTATONIC_STEPS[step + 5] / 12);
+}
+
+// iPhone: holding a finger shows the magnifier and starts selecting the
+// page. lockGestures() blocks long-press menus, but iOS text selection is
+// a separate mechanism, so turn it off for the whole page. Nothing on this
+// screen is text to select. The CSS is injected from here so index.html
+// keeps only its agreed p5.sound line.
+function blockSelection() {
+  const style = document.createElement('style');
+  style.textContent =
+    '*, *::before, *::after {' +
+    ' -webkit-user-select: none; user-select: none;' +
+    ' -webkit-touch-callout: none;' +
+    ' -webkit-tap-highlight-color: transparent;' +
+    '}';
+  document.head.appendChild(style);
+  document.addEventListener('selectstart', (e) => e.preventDefault());
 }
