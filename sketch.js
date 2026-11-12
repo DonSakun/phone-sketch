@@ -15,10 +15,10 @@ let wordsGone = false;
 let drops = [];
 
 // How many counted drops (inside the grey) fill the glass. Fixed, so a
-// reload always takes the same amount of pouring. Tuned by eye against
-// the half-size dots: on a phone the grey triangle fits ~220 of them
-// edge to edge, so 200 reads as full.
-const FULL_COUNT = 200;
+// reload always takes the same amount of pouring. Tuned by eye: the
+// dots are twice their earlier size, so half as many — 100 — read as
+// full.
+const FULL_COUNT = 100;
 
 // Counted drops so far — inside the grey only; fading ones don't count.
 let poured = 0;
@@ -243,10 +243,11 @@ function addDrop() {
   }
 }
 
-// Drop size as a share of the screen width — halved once by eye; with
-// FULL_COUNT counted drops at this size, the grey reads as a full glass.
+// Drop size as a share of the screen width — back to twice the earlier
+// size, by eye; with FULL_COUNT counted drops at this size, the grey
+// reads as a full glass.
 function dropRadius() {
-  return width * 0.0185;
+  return width * 0.037;
 }
 
 function drawDrops() {
@@ -284,8 +285,8 @@ function startReplay() {
 }
 
 // Called every frame: fire each note when its time comes. The spacing
-// keeps the whole sweep about 12 s long whatever the count (about 60 ms
-// per note at 200). If frames are slow (backgrounded tab), it catches up
+// keeps the whole sweep about 12 s long whatever the count (about 120 ms
+// per note at 100). If frames are slow (backgrounded tab), it catches up
 // to wall-clock time instead of dragging out.
 function advanceReplay() {
   if (!replaying) return;
