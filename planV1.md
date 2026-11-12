@@ -24,9 +24,9 @@ The note and small circle stop once the small circle filled up the grey area.
   test without a phone.
 
 ## References
-| File | Use it as | Take |
+| File | Use it as | Take | Leave |
 |---|---|---|---|
-| references/drink-layout | layout: match this | where the glass sits (middle), its size, the small text at the top, nothing else on screen
+| references/drink-layout | layout: match this | where the glass sits (middle), its size, the small text at the top, nothing else on screen | --- |
 | references/mood | inspiration: the feel | color visuals | [the rest] |
 
 ## Limits
