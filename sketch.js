@@ -1,9 +1,14 @@
 // Making a drink — V1
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
-// note on hold (4), move changes the pitch (5).
+// note on hold (4), move changes the pitch (5), drops appear and stay (6).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
+
+// Every note leaves a drop: {x, y, col}. The color is baked in at
+// creation (hue follows the note's pitch) and drops are never removed —
+// Step 7 will add the fade for the ones that land outside the grey.
+let drops = [];
 
 let osc = null;
 let holding = false;
@@ -30,6 +35,7 @@ function setup() {
 function draw() {
   background(0);
   drawGlass();
+  drawDrops();
   if (!wordsGone) drawHint();
 }
 
@@ -125,6 +131,7 @@ function mouseDragged(e) {
   if (step !== currentStep) {
     currentStep = step;
     osc.freq(stepFreq(step), 0.1); // ~100 ms slide between steps
+    addDrop();                     // one more drop per pitch-step change
   }
   return false;
 }
@@ -140,6 +147,7 @@ function startNote() {
   currentStep = stepAt(mouseX);
   osc.freq(stepFreq(currentStep)); // instant, at the pressed position
   osc.amp(0.3, 0.03);              // ~30 ms fade-in, no click
+  addDrop();                       // every new note leaves one drop at the finger
 }
 
 function stopNote() {
@@ -155,6 +163,33 @@ function stepAt(x) {
 
 function stepFreq(step) {
   return BASE_FREQ * pow(2, PENTATONIC_STEPS[step + 5] / 12);
+}
+
+// One drop at the finger, colored by the note's pitch: the full hue
+// wheel (0-360°) spans the playable range — lowest note = one end,
+// highest note = the other. The color is baked into the drop now, so
+// every drop keeps its own hue forever.
+function addDrop() {
+  const h = map(currentStep, -5, 5, 0, 360);
+  colorMode(HSB, 360, 100, 100);
+  const col = color(h, 75, 100);
+  colorMode(RGB, 255);
+  drops.push({ x: mouseX, y: mouseY, col: col });
+}
+
+// Drop size as a share of the screen width — halved once by eye, and
+// Step 8 still tunes this number so ~40 counted drops read as a full glass.
+function dropRadius() {
+  return width * 0.0185;
+}
+
+function drawDrops() {
+  noStroke();
+  const r = dropRadius();
+  for (const d of drops) {
+    fill(d.col);
+    circle(d.x, d.y, r * 2);
+  }
 }
 
 // iPhone: holding a finger shows the magnifier and starts selecting the
