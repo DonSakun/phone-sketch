@@ -2,16 +2,18 @@
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
 // inside-grey counts / outside fades (7), the drink is done (8),
-// replay on the full glass (9), reload resets (10), laptop fallback (11).
+// replay on the full glass (9), reload resets (10), laptop fallback (11),
+// drops fall into the glass (12).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
 
-// Every note leaves a drop: {x, y, col, step, inside, fadeStart}. The
-// color is baked in at creation (hue follows the note's pitch) and step
-// remembers the pitch for Step 9's replay. A drop whose center is inside
-// the grey liquid stays forever; one on the black fades away over 0.5 s
-// and is then removed.
+// Every note leaves a drop: {x, y, col, step, inside, landing, fadeStart,
+// spawnT, landedAt, vy}. The color is baked in at creation (hue follows
+// the note's pitch) and step remembers the pitch for the replay. Step 12:
+// a drop in the liquid stays forever; one that falls to the surface
+// counts when it lands; one whose path misses the glass falls while
+// fading away over 0.5 s.
 let drops = [];
 
 // How many counted drops (inside the grey) fill the glass. Fixed, so a
@@ -218,6 +220,12 @@ function stepFreq(step) {
 // wheel (0-360°) spans the playable range — lowest note = one end,
 // highest note = the other. The color is baked into the drop now, so
 // every drop keeps its own hue forever.
+// Where it spawns decides its fate (Step 12):
+//  - inside the grey liquid: counted at once, stays where you touched;
+//  - above the glass opening: falls to the surface, counted on landing;
+//  - anywhere else (the fall path never crosses the glass): falls while
+//    fading, never counts. The note plays either way — sound never
+//    depends on where the drop lands.
 function addDrop() {
   const h = map(currentStep, -5, 5, 0, 360);
   colorMode(HSB, 360, 100, 100);
@@ -225,22 +233,53 @@ function addDrop() {
   colorMode(RGB, 255);
   const x = mouseX;
   const y = mouseY;
-  // Center rule: inside the grey = it stays (and will count toward
-  // filling in Step 8); on the black = it fades away in 0.5 s. The note
-  // plays either way — sound never depends on where the drop lands.
   const liquid = liquidTriangle();
   const inside = pointInTriangle(x, y, liquid[0], liquid[1], liquid[2]);
-  drops.push({ x: x, y: y, col: col, step: currentStep, inside: inside, fadeStart: inside ? 0 : millis() });
+  const landing = !inside && fallPathHitsLiquid(x, y);
+  drops.push({
+    x: x, y: y, col: col, step: currentStep,
+    inside: inside,      // in the liquid and counted — true from the start only for inside spawns
+    landing: landing,    // falling toward the surface; counted when it lands
+    fadeStart: (!inside && !landing) ? millis() : null, // misses fade away while falling
+    spawnT: millis(),
+    landedAt: null,      // set on landing: drives the brief squash
+    vy: 0                // fall speed in px/s
+  });
   if (inside) {
     poured++;
-    if (poured >= FULL_COUNT) {
-      // The glass is full: the current note stops at once ("the note and
-      // small circle stop once filled") and the hold is over — from here
-      // no notes and no drops, until a reload.
-      holding = false;
-      stopNote();
-    }
+    checkFull();
   }
+}
+
+// Called after every counted drop: when the glass fills, the current
+// note stops at once ("the note and small circle stop once filled") and
+// the hold is over — from here no notes and no drops, until a reload.
+// A landing drop runs this too: an in-flight drop can be the one that
+// finishes the drink while a finger is still held down.
+function checkFull() {
+  if (poured >= FULL_COUNT) {
+    holding = false;
+    stopNote();
+  }
+}
+
+// Will a drop falling straight down from (x, y) enter the grey liquid?
+// The fall is a straight vertical line, so it hits iff the spawn sits
+// above the bowl's opening (at or above the surface line) and within
+// the opening's width. Beside or below the bowl, the line never
+// touches the grey.
+function fallPathHitsLiquid(x, y) {
+  const [a, b] = liquidTriangle(); // the two top corners: the surface
+  if (y > a.y) return false;
+  return x > a.x && x < b.x;
+}
+
+// Fall physics: from rest at the very top of the screen a drop reaches
+// the liquid in ~0.6 s (the plan's 0.5-0.7 s), speeding up the whole
+// way down.
+function fallGravity() {
+  const surfaceY = liquidTriangle()[0].y;
+  return (2 * surfaceY) / (0.6 * 0.6);
 }
 
 // Drop size as a share of the screen width — back to twice the earlier
@@ -254,19 +293,56 @@ function drawDrops() {
   noStroke();
   const r = dropRadius();
   const now = millis();
+  const dt = min(deltaTime, 50) / 1000; // seconds, capped so a stalled
+                                         // frame can't teleport a drop
+  const g = fallGravity();
+  const surfaceY = liquidTriangle()[0].y; // the liquid's top edge
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i];
-    if (d.inside) {
-      fill(d.col);
-    } else {
-      const t = (now - d.fadeStart) / 500; // 0.5 s fade
+
+    if (!d.inside) {
+      // In the air: accelerate straight down.
+      d.vy += g * dt;
+      d.y += d.vy * dt;
+      if (d.landing && d.y >= surfaceY) {
+        // Touches the liquid: counted right now, brief squash, at rest.
+        d.y = surfaceY;
+        d.inside = true;
+        d.landedAt = now;
+        poured++;
+        checkFull();
+      }
+    }
+
+    // Where to draw it this frame: a slight side-to-side sway while it
+    // falls (visual only — the fall path stays a straight column), none
+    // once it's in the liquid.
+    const sway = d.inside ? 0 : sin((now - d.spawnT) * TWO_PI / 300) * r * 0.6;
+    const px = d.x + sway;
+    const py = d.y;
+
+    // Only drops whose path misses the glass fade away (0.5 s).
+    let alpha = 255;
+    if (d.fadeStart != null) {
+      const t = (now - d.fadeStart) / 500;
       if (t >= 1) {
         drops.splice(i, 1); // fully faded — gone for good
         continue;
       }
-      fill(red(d.col), green(d.col), blue(d.col), (1 - t) * 255);
+      alpha = (1 - t) * 255;
     }
-    circle(d.x, d.y, r * 2);
+    fill(red(d.col), green(d.col), blue(d.col), alpha);
+
+    // A brief squash right after landing — the drop itself deforming,
+    // no splash particles (visuals stay "drops only").
+    let sx = 1;
+    let sy = 1;
+    if (d.landedAt != null && now - d.landedAt < 180) {
+      const k = 1 - (now - d.landedAt) / 180;
+      sx = 1 + 0.35 * k;
+      sy = 1 - 0.3 * k;
+    }
+    ellipse(px, py, r * 2 * sx, r * 2 * sy);
   }
 }
 
