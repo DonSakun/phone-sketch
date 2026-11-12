@@ -1,6 +1,8 @@
 // Making a drink — V1
-// Step 1: the screen. Static only — sound, taps, words leaving, and drops
-// arrive in later steps. Layout approximates references/drink-layout.png.
+// Steps so far: the screen (1), sound unlock (2), words disappearing (3).
+// Layout approximates references/drink-layout.png.
+
+let wordsGone = false;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -11,7 +13,7 @@ function setup() {
 function draw() {
   background(0);
   drawGlass();
-  drawHint();
+  if (!wordsGone) drawHint();
 }
 
 // The glass: white body (bowl + stem + foot), with the grey liquid drawn on
@@ -62,4 +64,15 @@ function drawHint() {
   textAlign(CENTER, CENTER);
   textSize(max(14, 0.04 * width));
   text('tap anywhere to pour a drink', width / 2, height * 0.1);
+}
+
+// The first tap anywhere on the canvas removes the words for good. The
+// sound-enable box tap doesn't count (its target is the overlay, not the
+// canvas), so the words survive until the first real touch — a bug that
+// testing caught in Glass Harp. Return false so p5-phone keeps handling
+// the gesture.
+function mousePressed(e) {
+  if (e && e.target && e.target !== document.querySelector('canvas')) return false;
+  wordsGone = true;
+  return false;
 }
