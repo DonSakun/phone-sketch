@@ -7,22 +7,14 @@ Touch detect anywhere on the screen.
 With the small words "tap anywhere to pour a drink"
 near the top. The words go away on the first tap.
 
-<<<<<<< HEAD
 When one person tap on the screen, play a note at finger position sets pitch.
 If the touch moves in any direction, play a slightly different pitch from the previous one.
 The pitch does not change if the touch doesn't move.
 At the same time, create a small circle whose color follows the pitch — higher pitch = further around the wheel.
-=======
-When one person tap on the screen, play a note at random.
-If the touch moves in any direction, play a slightly different pitch from the previous one.
-The pitch does not change if the touch doesn't move.
-At the same time, create small circle at random color, with every pitch change change the hue slightly.
->>>>>>> 6ff10a2656479c6ec058960ec45c888315cfb055
 The small circle filled up the grey area on the screen. 
 
 The note and small circle stop once the touch is undetected.
 The note and small circle stop once the small circle filled up the grey area.
-<<<<<<< HEAD
 When the glass is full it stays full. Tap again to hear the notes replay.
 Reload the page resets everything.
 
@@ -31,14 +23,6 @@ Reload the page resets everything.
 - Transformation: plays a note at finger position instantly. create  small circles that filling up a glass.
 - Output: The person hears a note and see the small circles.
 - Fallback: on a laptop, click and hold anywhere count as tap anywhere to pour a drink, moving the mouse counts as moves touch, so I can
-=======
-
-## Input, transformation, output, fallback
-- Input: where does the phone detect touch on the screen.
-- Transformation: plays a random note instantly. create  small circles that filling up a glass.
-- Output: The person hears a note and see the small circles.
-- Fallback: on a laptop, click and hold count as tap and hold, moving the mouse counts as moves touch, so I can
->>>>>>> 6ff10a2656479c6ec058960ec45c888315cfb055
   test without a phone.
 
 ## References
@@ -53,18 +37,12 @@ Reload the page resets everything.
 - Not now: other people's phones.
 
 ## How I will check it
-<<<<<<< HEAD
 - On my laptop: click and hold plays a note and create a drops, moving a mouse change its pitch slightly and change the drops hue slightly.
 - On my phone: tap anywhere and hold plays a note and create a drops, moving a touch change its pitch slightly and change the drops hue slightly.
-=======
-- On my laptop: click and hold plays a note, moving a mouse change its pitch slightly.
-- On my phone: tap inside the circle and hold plays a note, moving a touch change its pitch slightly.
->>>>>>> 6ff10a2656479c6ec058960ec45c888315cfb055
 
 ## Steps
 <!-- Written by the agent. Each step small enough to check on your phone. -->
 
-<<<<<<< HEAD
 **Step 1 — The screen**
 Replace the Glass Harp sketch with V1: full-screen portrait canvas (`createCanvas(windowWidth, windowHeight)`), black background, a white martini glass centered approximating `references/drink-layout.png` (wide triangle bowl up top, thin stem, foot at the bottom), grey liquid filling the bowl — the grey is a simple triangle under the bowl's top edge, the same shape used both for drawing and for the fill test in Step 7, and small white words "tap anywhere to pour a drink" near the top. Call `lockGestures()` in `setup()`. Nothing else ever appears but drops (later steps).
 *Check on your phone:* matches `drink-layout.png` — hint at top, glass in the middle, grey inside the bowl, black edge to edge; no pull-to-refresh, no scrolling, no zoom.
@@ -111,5 +89,3 @@ Same code path: left click-and-hold anywhere = the tap, moving the mouse = movin
 
 <!-- The agreed assumptions are baked into the steps: glass drawn with p5 shapes approximating drink-layout.png and grey = a triangle under the bowl (Step 1); count rule = drop center inside the grey (Step 7); one drop per note = first tap + each pitch-step change, holding still adds none (Step 6); ~40 counted drops = full, drop size tuned by eye (Step 8); pitch = pentatonic steps across screen width, left low / right high, ~100 ms glide, vertical ignored (Step 5); hue = full 360° wheel across the pitch range, each drop keeps its color (Step 6); replay = recorded notes at ~150 ms each, same sine, screen untouched, repeatable (Step 9); full = no new notes, tap only replays (Steps 8-9); first tap anywhere removes the words (Step 3); reused from Glass Harp: lockGestures, sine + ~30 ms fade-in, one finger, left-click-only guard, windowResized, blockSelection, enableSoundTap first (Steps 2-4, 11); reload resets = browser default (Step 10); visuals = drops only (Steps 1, 6). -->
 
-=======
->>>>>>> 6ff10a2656479c6ec058960ec45c888315cfb055
