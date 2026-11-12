@@ -2,7 +2,7 @@
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
 // inside-grey counts / outside fades (7), the drink is done (8),
-// replay on the full glass (9).
+// replay on the full glass (9), reload resets (10).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
