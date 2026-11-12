@@ -1,15 +1,17 @@
 // Making a drink — V1
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
-// inside-grey counts / outside fades (7), the drink is done (8).
+// inside-grey counts / outside fades (7), the drink is done (8),
+// replay on the full glass (9).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
 
-// Every note leaves a drop: {x, y, col, inside, fadeStart}. The color is
-// baked in at creation (hue follows the note's pitch). A drop whose center
-// is inside the grey liquid stays forever; one on the black fades away
-// over 0.5 s and is then removed.
+// Every note leaves a drop: {x, y, col, step, inside, fadeStart}. The
+// color is baked in at creation (hue follows the note's pitch) and step
+// remembers the pitch for Step 9's replay. A drop whose center is inside
+// the grey liquid stays forever; one on the black fades away over 0.5 s
+// and is then removed.
 let drops = [];
 
 // How many counted drops (inside the grey) fill the glass. Fixed, so a
@@ -20,6 +22,13 @@ const FULL_COUNT = 200;
 
 // Counted drops so far — inside the grey only; fading ones don't count.
 let poured = 0;
+
+// Replay state (Step 9): the queue of counted notes in pour order, where
+// in it we are, and when the next one is due. See startReplay/advanceReplay.
+let replayQueue = [];
+let replayIndex = 0;
+let replaying = false;
+let replayNextAt = 0;
 
 let osc = null;
 let holding = false;
@@ -48,6 +57,7 @@ function draw() {
   drawGlass();
   drawDrops();
   if (!wordsGone) drawHint();
+  advanceReplay(); // while the glass is full, a tap sweeps through its notes
 }
 
 // The glass: white body (bowl + stem + foot), with the grey liquid drawn on
@@ -122,13 +132,16 @@ function drawHint() {
 // until the first real touch — a bug that testing caught in Glass Harp.
 // Laptop: only a left click counts as a tap; right/middle must not start
 // a note. Only the first finger counts; extra fingers are ignored.
-// When the glass is full, taps do nothing at all (Step 9 turns this tap
-// into a replay instead).
+// When the glass is full, a tap replays all the counted notes instead
+// of pouring (Step 9).
 // Return false so p5-phone keeps handling the gesture.
 function mousePressed(e) {
   if (e && e.target && e.target !== document.querySelector('canvas')) return false;
   if (e && e.button !== undefined && e.button !== 0) return false;
-  if (poured >= FULL_COUNT) return false; // the drink is done
+  if (poured >= FULL_COUNT) {
+    startReplay(); // the drink is done: tap = replay
+    return false;
+  }
   wordsGone = true;
   if (!holding) {
     holding = true;
@@ -166,14 +179,20 @@ function mouseDragged(e) {
   return false;
 }
 
-// The note: a sine at the pressed position, fading in over ~30 ms so it
-// starts without a click. The same oscillator is reused for every note.
-function startNote() {
+// One sine, reused for every note — created on first use, which is
+// always after the sound-enable tap has unlocked audio.
+function ensureOsc() {
   if (!osc) {
     osc = new p5.Oscillator('sine');
     osc.amp(0, 0);   // start silent, no ramp
     osc.start();
   }
+}
+
+// The note: a sine at the pressed position, fading in over ~30 ms so it
+// starts without a click.
+function startNote() {
+  ensureOsc();
   currentStep = stepAt(mouseX);
   osc.freq(stepFreq(currentStep)); // instant, at the pressed position
   osc.amp(0.3, 0.03);              // ~30 ms fade-in, no click
@@ -211,7 +230,7 @@ function addDrop() {
   // plays either way — sound never depends on where the drop lands.
   const liquid = liquidTriangle();
   const inside = pointInTriangle(x, y, liquid[0], liquid[1], liquid[2]);
-  drops.push({ x: x, y: y, col: col, inside: inside, fadeStart: inside ? 0 : millis() });
+  drops.push({ x: x, y: y, col: col, step: currentStep, inside: inside, fadeStart: inside ? 0 : millis() });
   if (inside) {
     poured++;
     if (poured >= FULL_COUNT) {
@@ -247,6 +266,38 @@ function drawDrops() {
       fill(red(d.col), green(d.col), blue(d.col), (1 - t) * 255);
     }
     circle(d.x, d.y, r * 2);
+  }
+}
+
+// A tap on the full glass replays every counted note, in the order it was
+// poured: one fast sweep through your own drink. The screen does not
+// change — no drops are added or removed. Tapping again (even mid-sweep)
+// starts it again from the top.
+function startReplay() {
+  replayQueue = drops.filter(d => d.inside).map(d => d.step);
+  if (replayQueue.length === 0) return;
+  replayIndex = 0;
+  replaying = true;
+  replayNextAt = millis();
+  ensureOsc();
+  osc.amp(0.3, 0.03); // fade in at the start of the sweep
+}
+
+// Called every frame: fire each note when its time comes. The spacing
+// keeps the whole sweep about 12 s long whatever the count (about 60 ms
+// per note at 200). If frames are slow (backgrounded tab), it catches up
+// to wall-clock time instead of dragging out.
+function advanceReplay() {
+  if (!replaying) return;
+  const perNote = max(15, round(12000 / replayQueue.length));
+  while (replayIndex < replayQueue.length && millis() >= replayNextAt) {
+    osc.freq(stepFreq(replayQueue[replayIndex]), 0.01); // ~10 ms glide
+    replayIndex++;
+    replayNextAt += perNote;
+  }
+  if (replayIndex >= replayQueue.length) {
+    replaying = false;
+    osc.amp(0, 0.05); // silence when the sweep ends
   }
 }
 
