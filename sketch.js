@@ -1,6 +1,7 @@
 // Making a drink — V1
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
-// note on hold (4). Layout approximates references/drink-layout.png.
+// note on hold (4), move changes the pitch (5).
+// Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
 
@@ -112,6 +113,22 @@ function mouseReleased(e) {
   return false;
 }
 
+// While holding, horizontal position picks the pentatonic step; the note
+// slides ~100 ms to the new step and holds there until the finger moves
+// to another step. Vertical position is ignored, and a still finger
+// never changes the step, so the pitch holds steady. Other fingers are
+// ignored (only the one that started the note counts).
+function mouseDragged(e) {
+  if (!holding) return false;
+  if (e && e.pointerId !== undefined && holdPointerId !== null && e.pointerId !== holdPointerId) return false;
+  const step = stepAt(mouseX);
+  if (step !== currentStep) {
+    currentStep = step;
+    osc.freq(stepFreq(step), 0.1); // ~100 ms slide between steps
+  }
+  return false;
+}
+
 // The note: a sine at the pressed position, fading in over ~30 ms so it
 // starts without a click. The same oscillator is reused for every note.
 function startNote() {
@@ -131,8 +148,7 @@ function stopNote() {
 
 // Horizontal position -> one of the 11 pentatonic steps across the whole
 // screen: far left = lowest note, far right = highest. Vertical position
-// is ignored (Step 5 adds the slide between steps; a still finger holds
-// the pitch it started with).
+// is ignored. Used at press (startNote) and while sliding (mouseDragged).
 function stepAt(x) {
   return constrain(round(map(x, 0, width, -5, 5)), -5, 5);
 }
