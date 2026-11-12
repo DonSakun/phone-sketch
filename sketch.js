@@ -1,7 +1,7 @@
 // Making a drink — V1
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
-// inside-grey counts / outside fades (7).
+// inside-grey counts / outside fades (7), the drink is done (8).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
@@ -11,6 +11,15 @@ let wordsGone = false;
 // is inside the grey liquid stays forever; one on the black fades away
 // over 0.5 s and is then removed.
 let drops = [];
+
+// How many counted drops (inside the grey) fill the glass. Fixed, so a
+// reload always takes the same amount of pouring. Tuned by eye against
+// the half-size dots: on a phone the grey triangle fits ~220 of them
+// edge to edge, so 200 reads as full.
+const FULL_COUNT = 200;
+
+// Counted drops so far — inside the grey only; fading ones don't count.
+let poured = 0;
 
 let osc = null;
 let holding = false;
@@ -113,10 +122,13 @@ function drawHint() {
 // until the first real touch — a bug that testing caught in Glass Harp.
 // Laptop: only a left click counts as a tap; right/middle must not start
 // a note. Only the first finger counts; extra fingers are ignored.
+// When the glass is full, taps do nothing at all (Step 9 turns this tap
+// into a replay instead).
 // Return false so p5-phone keeps handling the gesture.
 function mousePressed(e) {
   if (e && e.target && e.target !== document.querySelector('canvas')) return false;
   if (e && e.button !== undefined && e.button !== 0) return false;
+  if (poured >= FULL_COUNT) return false; // the drink is done
   wordsGone = true;
   if (!holding) {
     holding = true;
@@ -200,10 +212,20 @@ function addDrop() {
   const liquid = liquidTriangle();
   const inside = pointInTriangle(x, y, liquid[0], liquid[1], liquid[2]);
   drops.push({ x: x, y: y, col: col, inside: inside, fadeStart: inside ? 0 : millis() });
+  if (inside) {
+    poured++;
+    if (poured >= FULL_COUNT) {
+      // The glass is full: the current note stops at once ("the note and
+      // small circle stop once filled") and the hold is over — from here
+      // no notes and no drops, until a reload.
+      holding = false;
+      stopNote();
+    }
+  }
 }
 
-// Drop size as a share of the screen width — halved once by eye, and
-// Step 8 still tunes this number so ~40 counted drops read as a full glass.
+// Drop size as a share of the screen width — halved once by eye; with
+// FULL_COUNT counted drops at this size, the grey reads as a full glass.
 function dropRadius() {
   return width * 0.0185;
 }
