@@ -1,13 +1,15 @@
 // Making a drink — V1
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
-// note on hold (4), move changes the pitch (5), drops appear and stay (6).
+// note on hold (4), move changes the pitch (5), drops appear and stay (6),
+// inside-grey counts / outside fades (7).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
 
-// Every note leaves a drop: {x, y, col}. The color is baked in at
-// creation (hue follows the note's pitch) and drops are never removed —
-// Step 7 will add the fade for the ones that land outside the grey.
+// Every note leaves a drop: {x, y, col, inside, fadeStart}. The color is
+// baked in at creation (hue follows the note's pitch). A drop whose center
+// is inside the grey liquid stays forever; one on the black fades away
+// over 0.5 s and is then removed.
 let drops = [];
 
 let osc = null;
@@ -80,6 +82,22 @@ function liquidTriangle() {
     { x: 0.885 * width, y: 0.262 * height },
     { x: 0.5 * width, y: 0.545 * height },
   ]; 
+}
+
+// Is (px, py) inside the grey liquid triangle? The classic sign test:
+// the point must be on the same side of all three edges. A point exactly
+// on an edge counts as inside.
+function pointInTriangle(px, py, a, b, c) {
+  const d1 = edgeSign(px, py, a, b);
+  const d2 = edgeSign(px, py, b, c);
+  const d3 = edgeSign(px, py, c, a);
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNeg && hasPos);
+}
+
+function edgeSign(px, py, a, b) {
+  return (px - b.x) * (a.y - b.y) - (a.x - b.x) * (py - b.y);
 }
 
 function drawHint() {
@@ -174,7 +192,14 @@ function addDrop() {
   colorMode(HSB, 360, 100, 100);
   const col = color(h, 75, 100);
   colorMode(RGB, 255);
-  drops.push({ x: mouseX, y: mouseY, col: col });
+  const x = mouseX;
+  const y = mouseY;
+  // Center rule: inside the grey = it stays (and will count toward
+  // filling in Step 8); on the black = it fades away in 0.5 s. The note
+  // plays either way — sound never depends on where the drop lands.
+  const liquid = liquidTriangle();
+  const inside = pointInTriangle(x, y, liquid[0], liquid[1], liquid[2]);
+  drops.push({ x: x, y: y, col: col, inside: inside, fadeStart: inside ? 0 : millis() });
 }
 
 // Drop size as a share of the screen width — halved once by eye, and
@@ -186,8 +211,19 @@ function dropRadius() {
 function drawDrops() {
   noStroke();
   const r = dropRadius();
-  for (const d of drops) {
-    fill(d.col);
+  const now = millis();
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const d = drops[i];
+    if (d.inside) {
+      fill(d.col);
+    } else {
+      const t = (now - d.fadeStart) / 500; // 0.5 s fade
+      if (t >= 1) {
+        drops.splice(i, 1); // fully faded — gone for good
+        continue;
+      }
+      fill(red(d.col), green(d.col), blue(d.col), (1 - t) * 255);
+    }
     circle(d.x, d.y, r * 2);
   }
 }
