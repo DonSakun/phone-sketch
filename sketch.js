@@ -3,24 +3,29 @@
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
 // inside-grey counts / outside fades (7), the drink is done (8),
 // replay on the full glass (9), reload resets (10), laptop fallback (11),
-// drops fall into the glass (12).
+// drops fall into the glass (12), drops sink and pile up (13).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
 
 // Every note leaves a drop: {x, y, col, step, inside, landing, fadeStart,
-// spawnT, landedAt, vy}. The color is baked in at creation (hue follows
-// the note's pitch) and step remembers the pitch for the replay. Step 12:
-// a drop in the liquid stays forever; one that falls to the surface
-// counts when it lands; one whose path misses the glass falls while
-// fading away over 0.5 s.
+// spawnT, squashAt, squashAmp, squashDur, vx, vy, settled, restMs}. The
+// color is baked in at creation (hue follows the note's pitch) and step
+// remembers the pitch for the replay. Steps 12-13: a drop that reaches
+// the liquid sinks viscously into the heap and freezes there; one whose
+// path misses the glass falls while fading away over 0.5 s.
 let drops = [];
 
 // How many counted drops (inside the grey) fill the glass. Fixed, so a
-// reload always takes the same amount of pouring. Tuned by eye: the
-// dots are twice their earlier size, so half as many — 100 — read as
-// full.
-const FULL_COUNT = 100;
+// reload always takes the same amount of pouring. Tuned by eye (Step 13):
+// the dots are big, so ~50 of them — packed with only a slight squish —
+// read as a full glass; 100 would mound out of the rim.
+const FULL_COUNT = 50;
+
+// A drop that has lain almost still this long is at rest: it freezes
+// into the heap (with one tiny squish). Also how a sinking drop's lazy
+// sway fades out as it comes to rest.
+const REST_MS = 700;
 
 // Counted drops so far — inside the grey only; fading ones don't count.
 let poured = 0;
@@ -220,9 +225,10 @@ function stepFreq(step) {
 // wheel (0-360°) spans the playable range — lowest note = one end,
 // highest note = the other. The color is baked into the drop now, so
 // every drop keeps its own hue forever.
-// Where it spawns decides its fate (Step 12):
-//  - inside the grey liquid: counted at once, stays where you touched;
-//  - above the glass opening: falls to the surface, counted on landing;
+// Where it spawns decides its fate (Steps 12-13):
+//  - inside the grey liquid: counted at once, then sinks into the heap;
+//  - above the glass opening: falls to the surface, counted on landing,
+//    then sinks in;
 //  - anywhere else (the fall path never crosses the glass): falls while
 //    fading, never counts. The note plays either way — sound never
 //    depends on where the drop lands.
@@ -242,8 +248,12 @@ function addDrop() {
     landing: landing,    // falling toward the surface; counted when it lands
     fadeStart: (!inside && !landing) ? millis() : null, // misses fade away while falling
     spawnT: millis(),
-    landedAt: null,      // set on landing: drives the brief squash
-    vy: 0                // fall speed in px/s
+    squashAt: null,      // when the drop last squished — big on landing,
+    squashAmp: 0,        // tiny joining the heap (see drawDrops)
+    squashDur: 0,
+    vx: 0, vy: 0,        // speed in px/s (air fall uses vy alone)
+    settled: false,      // frozen into the heap
+    restMs: 0            // how long it has lain almost still
   });
   if (inside) {
     poured++;
@@ -282,6 +292,150 @@ function fallGravity() {
   return (2 * surfaceY) / (0.6 * 0.6);
 }
 
+// Step 13 — once a drop is in the liquid it sinks: a slow, viscous
+// descent (drag holds it to a lazy terminal speed, much slower than the
+// air-fall), squeezing into the pile with only a slight squish (centres
+// rest 8 % closer than two radii), sliding toward the low side so the
+// heap levels out, and freezing for good once it has lain still for
+// REST_MS — with one tiny squish as it joins the heap. The bowl's
+// sloped walls keep every whole drop inside the grey; settled drops are
+// immovable, so the pile keeps its shape while later drops build on it.
+function updateLiquid(r, dt, now) {
+  const liq = liquidTriangle();
+  const A = liq[0];
+  const B = liq[1];
+  const C = liq[2];
+  const surfaceY = A.y;
+  const inX = (A.x + B.x + C.x) / 3; // any point inside the bowl — used
+  const inY = (A.y + B.y + C.y) / 3; // to orient the wall normals
+  const rest = 2 * r * 0.92;         // centres this close = 8 % squish
+  const sinkG = height * 0.4;        // px/s² — a slow, heavy sink
+  const drag = 3.5;                  // 1/s → terminal ≈ 0.11 × height/s
+  const settleSpeed = 15;            // px/s: slower than this = at rest
+
+  // 1) Remember where each sinking drop started this frame, then sink it.
+  for (const d of drops) {
+    if (!d.inside || d.settled) continue;
+    d.fx = d.x;
+    d.fy = d.y;
+    d.vy += sinkG * dt;
+    d.vx -= d.vx * min(1, drag * dt);
+    d.vy -= d.vy * min(1, drag * dt); // drag → terminal velocity, no plunge
+    d.x += d.vx * dt;
+    d.y += d.vy * dt;
+  }
+
+  // 2) Squeeze overlapping drops apart to `rest` — soft particles, and
+  //    contacts are inelastic (gooey), so nothing ever bounces. Two
+  //    passes a frame settle deep piles faster.
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < drops.length; i++) {
+      const d = drops[i];
+      if (!d.inside) continue;
+      for (let j = i + 1; j < drops.length; j++) {
+        const o = drops[j];
+        if (!o.inside) continue;
+        if (d.settled && o.settled) continue;
+        let dx = o.x - d.x;
+        let dy = o.y - d.y;
+        let dist = sqrt(dx * dx + dy * dy);
+        if (dist < 0.0001) {
+          // Exactly coincident: nudge apart sideways instead of dividing by zero.
+          dx = (i % 2 === 0 ? 1 : -1) * 0.5;
+          dy = -1;
+          dist = sqrt(dx * dx + dy * dy);
+        }
+        if (dist >= rest) continue;
+        const overlap = rest - dist;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const shareD = d.settled ? 0 : (o.settled ? 1 : 0.5);
+        const shareO = o.settled ? 0 : (d.settled ? 1 : 0.5);
+        if (shareD > 0) {
+          d.x -= nx * overlap * shareD;
+          d.y -= ny * overlap * shareD;
+          const vn = d.vx * nx + d.vy * ny;
+          if (vn > 0) { d.vx -= nx * vn; d.vy -= ny * vn; }
+        }
+        if (shareO > 0) {
+          o.x += nx * overlap * shareO;
+          o.y += ny * overlap * shareO;
+          const vn = o.vx * nx + o.vy * ny;
+          if (vn < 0) { o.vx -= nx * vn; o.vy -= ny * vn; }
+        }
+        // Level and squeezed: let them roll past each other instead of
+        // wedging side by side where the bowl pinches — otherwise the
+        // pair stalls mid-V and the heap never reaches the bottom.
+        if (shareD > 0 && shareO > 0 && abs(dy) < rest * 0.5) {
+          const shear = min(overlap * 0.4, 0.6);
+          const dir = i % 2 === 0 ? 1 : -1;
+          d.y += shear * dir;
+          o.y -= shear * dir;
+        }
+      }
+    }
+  }
+
+  // 3) Back inside the bowl: never above the surface line, never poking
+  //    through a sloped wall. (Settled drops were clamped every frame
+  //    until they froze, and nothing moves them after that.)
+  for (const d of drops) {
+    if (!d.inside || d.settled) continue;
+    if (d.y < surfaceY) {
+      d.y = surfaceY;
+      if (d.vy < 0) d.vy = 0;
+    }
+    clampWall(d, r, A, C, inX, inY);
+    clampWall(d, r, B, C, inX, inY);
+  }
+
+  // 4) Freeze: almost still for REST_MS and the drop belongs to the
+  //    heap — one tiny squish to show it settling in.
+  for (const d of drops) {
+    if (!d.inside || d.settled) continue;
+    const moved = sqrt((d.x - d.fx) * (d.x - d.fx) + (d.y - d.fy) * (d.y - d.fy));
+    if (moved / dt < settleSpeed) {
+      d.restMs += dt * 1000;
+      if (d.restMs >= REST_MS) {
+        d.settled = true;
+        d.vx = 0;
+        d.vy = 0;
+        d.squashAt = now;
+        d.squashAmp = 0.18;
+        d.squashDur = 140;
+      }
+    } else {
+      d.restMs = 0;
+    }
+  }
+}
+
+// Keep one whole drop inside a sloped wall of the bowl: the circle's
+// centre must stay at least r from the wall line, on the side where
+// (inX, inY) sits. Velocity into the wall is dropped on contact — the
+// glass does not bounce, it can only slide down it.
+function clampWall(d, r, P0, P1, inX, inY) {
+  const ex = P1.x - P0.x;
+  const ey = P1.y - P0.y;
+  const len = sqrt(ex * ex + ey * ey);
+  let nx = ey / len;
+  let ny = -ex / len;
+  if (nx * (inX - P0.x) + ny * (inY - P0.y) < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  const s = (d.x - P0.x) * nx + (d.y - P0.y) * ny;
+  if (s < r) {
+    d.x += nx * (r - s);
+    d.y += ny * (r - s);
+    const vn = d.vx * nx + d.vy * ny;
+    if (vn < 0) {
+      d.vx -= nx * vn;
+      d.vy -= ny * vn;
+    }
+  }
+}
+
 // Drop size as a share of the screen width — back to twice the earlier
 // size, by eye; with FULL_COUNT counted drops at this size, the grey
 // reads as a full glass.
@@ -293,10 +447,13 @@ function drawDrops() {
   noStroke();
   const r = dropRadius();
   const now = millis();
-  const dt = min(deltaTime, 50) / 1000; // seconds, capped so a stalled
-                                         // frame can't teleport a drop
+  const dt = max(min(deltaTime, 50) / 1000, 0.001); // seconds, capped so a
+                                                    // stalled frame can't teleport a drop
   const g = fallGravity();
   const surfaceY = liquidTriangle()[0].y; // the liquid's top edge
+
+  updateLiquid(r, dt, now); // Step 13: in the liquid, everything sinks
+
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i];
 
@@ -305,19 +462,30 @@ function drawDrops() {
       d.vy += g * dt;
       d.y += d.vy * dt;
       if (d.landing && d.y >= surfaceY) {
-        // Touches the liquid: counted right now, brief squash, at rest.
+        // Touches the liquid: counted right now, big squash — and the
+        // liquid takes over from here (updateLiquid sinks it onward).
         d.y = surfaceY;
+        d.vy = 0;
+        d.vx = 0;
         d.inside = true;
-        d.landedAt = now;
+        d.squashAt = now;
+        d.squashAmp = 0.35;
+        d.squashDur = 180;
         poured++;
         checkFull();
       }
     }
 
-    // Where to draw it this frame: a slight side-to-side sway while it
-    // falls (visual only — the fall path stays a straight column), none
-    // once it's in the liquid.
-    const sway = d.inside ? 0 : sin((now - d.spawnT) * TWO_PI / 300) * r * 0.6;
+    // Where to draw it this frame (all sway is visual only): a quick
+    // wobble in the air, a lazy one while it sinks — fading out as it
+    // comes to rest — and none once it is frozen into the heap.
+    let sway = 0;
+    if (!d.inside) {
+      sway = sin((now - d.spawnT) * TWO_PI / 300) * r * 0.6;
+    } else if (!d.settled) {
+      const fade = 1 - min(1, d.restMs / REST_MS);
+      sway = sin((now - d.spawnT) * TWO_PI / 900) * r * 0.45 * fade;
+    }
     const px = d.x + sway;
     const py = d.y;
 
@@ -333,14 +501,15 @@ function drawDrops() {
     }
     fill(red(d.col), green(d.col), blue(d.col), alpha);
 
-    // A brief squash right after landing — the drop itself deforming,
-    // no splash particles (visuals stay "drops only").
+    // The squash: big when a falling drop hits the surface, tiny when a
+    // sinking one joins the heap — the drop itself deforming, no splash
+    // particles (visuals stay "drops only").
     let sx = 1;
     let sy = 1;
-    if (d.landedAt != null && now - d.landedAt < 180) {
-      const k = 1 - (now - d.landedAt) / 180;
-      sx = 1 + 0.35 * k;
-      sy = 1 - 0.3 * k;
+    if (d.squashAt != null && now - d.squashAt < d.squashDur) {
+      const k = 1 - (now - d.squashAt) / d.squashDur;
+      sx = 1 + d.squashAmp * k;
+      sy = 1 - d.squashAmp * 0.86 * k;
     }
     ellipse(px, py, r * 2 * sx, r * 2 * sy);
   }
@@ -361,8 +530,8 @@ function startReplay() {
 }
 
 // Called every frame: fire each note when its time comes. The spacing
-// keeps the whole sweep about 12 s long whatever the count (about 120 ms
-// per note at 100). If frames are slow (backgrounded tab), it catches up
+// keeps the whole sweep about 12 s long whatever the count (about 240 ms
+// per note at 50). If frames are slow (backgrounded tab), it catches up
 // to wall-clock time instead of dragging out.
 function advanceReplay() {
   if (!replaying) return;
