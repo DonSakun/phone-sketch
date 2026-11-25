@@ -3,10 +3,15 @@
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
 // inside-grey counts / outside fades (7), the drink is done (8),
 // replay on the full glass (9), reload resets (10), laptop fallback (11),
-// drops fall into the glass (12), drops sink and pile up (13).
+// drops fall into the glass (12), drops sink and pile up (13), the words (14).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
+
+// Step 14: the first time the drink reads full, "Tap again to hear the
+// melody replay." appears near the top — a latch, so it stays until a
+// reload even if (Step 16) drops later spill back out of the glass.
+let replayWords = false;
 
 // Every note leaves a drop: {x, y, col, step, inside, landing, fadeStart,
 // spawnT, squashAt, squashAmp, squashDur, vx, vy, settled, restMs}. The
@@ -64,6 +69,7 @@ function draw() {
   drawGlass();
   drawDrops();
   if (!wordsGone) drawHint();
+  if (replayWords) drawReplayWords(); // Step 14: from first full, for good
   advanceReplay(); // while the glass is full, a tap sweeps through its notes
 }
 
@@ -130,7 +136,18 @@ function drawHint() {
   fill(255);
   textAlign(CENTER, CENTER);
   textSize(max(14, 0.04 * width));
-  text('tap anywhere to pour a drink', width / 2, height * 0.1);
+  text('tap and hold anywhere to pour a drink', width / 2, height * 0.1);
+}
+
+// Step 14 — the words that appear when the glass first reads full and
+// never leave (until a reload), in the hint's spot near the top. Only
+// one of the two lines is ever up: by full, the first tap has already
+// removed the hint.
+function drawReplayWords() {
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textSize(max(14, 0.04 * width));
+  text('Tap again to hear the melody replay.', width / 2, height * 0.1);
 }
 
 // Tap anywhere and hold: remove the words (first tap only, for good) and
@@ -270,6 +287,7 @@ function checkFull() {
   if (poured >= FULL_COUNT) {
     holding = false;
     stopNote();
+    replayWords = true; // Step 14: first full → the line appears for good
   }
 }
 
