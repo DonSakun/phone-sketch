@@ -5,7 +5,7 @@
 Before it starts, the screen is dark, with white glass shape in the middle. 
 Touch detect anywhere on the screen.
 With the small words "tap and hold anywhere to pour a drink"
-near the top. The words go away on the first tap.
+near the top. The words go away on the second tap.
 
 When one person tap on the screen, play a note at finger position sets pitch.
 If the touch moves in any direction, play a slightly different pitch from the previous one.
@@ -13,14 +13,20 @@ The pitch does not change if the touch doesn't move.
 At the same time, create a small circle whose color follows the pitch — higher pitch = further around the wheel.
 The small circle filled up the grey area on the screen. 
 
+
 If the phone is tilted in any direction, the small circle slowly falls in a direction based on the tilt.
 Small circle that has fallen out of the glass are cut off from the replay and not counted in the limit, and gradually fade away just like ones outside grey area.
 
+
 The note and small circle stop once the touch is undetected.
 The note and small circle stop once the small circle filled up the grey area.
-When the glass is full it stays full. Tap again to hear the notes replay.
+When the glass is full it stays full. 
 
-Small words "Tap again to hear the melody replay." near the top appear and does not go away.
+
+Detect a swirl direction touch to hear the notes replay.
+The replay only play the note existing in the grey area. Any notes changes during the replay does not affect the current replay, only the next and so on replays.
+After the first full limit reached, small words "swirl to hear the melody replay." near the top appear and does not go away.
+
 Reload the page resets everything.
 
 
