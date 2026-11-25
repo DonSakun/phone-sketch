@@ -89,9 +89,14 @@ function setup() {
     if (wantAwake && document.visibilityState === 'visible') requestWakeLock();
   });
 }
+let bgImage;
+
+function preload() {
+  bgImage = loadImage("drink-background.png");
+}
 
 function draw() {
-  background(0);
+  background(bgImage);
   drawGlass();
   drawDrops();
   if (!wordsGone) drawHint();
