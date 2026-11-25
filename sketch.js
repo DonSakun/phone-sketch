@@ -4,7 +4,7 @@
 // inside-grey counts / outside fades (7), the drink is done (8),
 // replay on the full glass (9), reload resets (10), laptop fallback (11),
 // drops fall into the glass (12), drops sink and pile up (13), the words (14),
-// the glass leans (15).
+// the glass leans (15), the drink pours out (16).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
@@ -27,12 +27,17 @@ let neutralY = null;
 let wakeLock = null;
 let wantAwake = false;
 
-// Every note leaves a drop: {x, y, col, step, inside, landing, fadeStart,
+// Every note leaves a drop: {x, y, col, step, inside, fadeStart, doomed,
 // spawnT, squashAt, squashAmp, squashDur, vx, vy, settled, restMs}. The
 // color is baked in at creation (hue follows the note's pitch) and step
 // remembers the pitch for the replay. Steps 12-13: a drop that reaches
-// the liquid sinks viscously into the heap and freezes there; one whose
-// path misses the glass falls while fading away over 0.5 s.
+// the liquid sinks viscously into the heap and freezes there. Step 16:
+// a drop is counted the moment it crosses the surface line inside the
+// opening (watched live, no spawn-time prediction); a counted drop that
+// rises half a radius above the line while the mouth is open pours out
+// (doomed — un-counted, cut from every future replay, given the 0.5 s
+// miss-fade); one that never enters starts fading the moment it falls
+// below the bowl.
 let drops = [];
 
 // How many counted drops (inside the grey) fill the glass. Fixed, so a
@@ -137,6 +142,13 @@ function liquidTriangle() {
   ]; 
 }
 
+// The white bowl's lowest point (drawGlass's bottom tip). Step 16: a
+// drop that was never counted starts fading the moment it falls below
+// the bowl — watched live every frame, no spawn-time prediction.
+function bowlBottomY() {
+  return 0.575 * height;
+}
+
 // Is (px, py) inside the grey liquid triangle? The classic sign test:
 // the point must be on the same side of all three edges. A point exactly
 // on an edge counts as inside.
@@ -177,14 +189,15 @@ function drawReplayWords() {
 // until the first real touch — a bug that testing caught in Glass Harp.
 // Laptop: only a left click counts as a tap; right/middle must not start
 // a note. Only the first finger counts; extra fingers are ignored.
-// When the glass is full, a tap replays all the counted notes instead
-// of pouring (Step 9).
+// When the glass is full — or a sweep is already running — a tap replays
+// the counted notes instead of pouring (Steps 9, 16: mid-sweep the
+// restart wins even if a spill has taken the count back down).
 // Return false so p5-phone keeps handling the gesture.
 function mousePressed(e) {
   if (e && e.target && e.target !== document.querySelector('canvas')) return false;
   if (e && e.button !== undefined && e.button !== 0) return false;
-  if (poured >= FULL_COUNT) {
-    startReplay(); // the drink is done: tap = replay
+  if (replaying || poured >= FULL_COUNT) {
+    startReplay(); // full (or mid-sweep): tap = replay from the top
     return false;
   }
   wordsGone = true;
@@ -278,13 +291,13 @@ function stepFreq(step) {
 // wheel (0-360°) spans the playable range — lowest note = one end,
 // highest note = the other. The color is baked into the drop now, so
 // every drop keeps its own hue forever.
-// Where it spawns decides its fate (Steps 12-13):
+// Where it spawns decides its first fate (Steps 12-13, 16):
 //  - inside the grey liquid: counted at once, then sinks into the heap;
-//  - above the glass opening: falls to the surface, counted on landing,
-//    then sinks in;
-//  - anywhere else (the fall path never crosses the glass): falls while
-//    fading, never counts. The note plays either way — sound never
-//    depends on where the drop lands.
+//  - anywhere else: it falls — counted the moment it crosses the surface
+//    line inside the opening, fading from the moment it falls below the
+//    bowl without ever entering (Step 16's continuous rule replaced Step
+//    12's spawn-time prediction). The note plays either way — sound
+//    never depends on where the drop lands.
 function addDrop() {
   const h = map(currentStep, -5, 5, 0, 360);
   colorMode(HSB, 360, 100, 100);
@@ -294,12 +307,11 @@ function addDrop() {
   const y = mouseY;
   const liquid = liquidTriangle();
   const inside = pointInTriangle(x, y, liquid[0], liquid[1], liquid[2]);
-  const landing = !inside && fallPathHitsLiquid(x, y);
   drops.push({
     x: x, y: y, col: col, step: currentStep,
     inside: inside,      // in the liquid and counted — true from the start only for inside spawns
-    landing: landing,    // falling toward the surface; counted when it lands
-    fadeStart: (!inside && !landing) ? millis() : null, // misses fade away while falling
+    fadeStart: null,     // set by a spill (doomed) or a fall below the bowl
+    doomed: false,       // Step 16: poured out — un-counted, never re-counts
     spawnT: millis(),
     squashAt: null,      // when the drop last squished — big on landing,
     squashAmp: 0,        // tiny joining the heap (see drawDrops)
@@ -316,26 +328,17 @@ function addDrop() {
 
 // Called after every counted drop: when the glass fills, the current
 // note stops at once ("the note and small circle stop once filled") and
-// the hold is over — from here no notes and no drops, until a reload.
-// A landing drop runs this too: an in-flight drop can be the one that
-// finishes the drink while a finger is still held down.
+// the hold is over — from here no notes and no drops, until a reload
+// (or until a spill drops the count back down and reopens the gate —
+// Step 16; the words themselves are latched and stay put).
+// A drop that lands on the surface runs this too: an in-flight drop can
+// be the one that finishes the drink while a finger is still held down.
 function checkFull() {
   if (poured >= FULL_COUNT) {
     holding = false;
     stopNote();
     replayWords = true; // Step 14: first full → the line appears for good
   }
-}
-
-// Will a drop falling straight down from (x, y) enter the grey liquid?
-// The fall is a straight vertical line, so it hits iff the spawn sits
-// above the bowl's opening (at or above the surface line) and within
-// the opening's width. Beside or below the bowl, the line never
-// touches the grey.
-function fallPathHitsLiquid(x, y) {
-  const [a, b] = liquidTriangle(); // the two top corners: the surface
-  if (y > a.y) return false;
-  return x > a.x && x < b.x;
 }
 
 // Step 15 — how hard the screen leans right now, in px/s². Deviation
@@ -391,8 +394,11 @@ function fallGravity() {
 // immovable, so the pile keeps its shape while later drops build on it.
 // Step 15 — the lean (tilt, px/s²): it slides the whole liquid around
 // and wakes the frozen heap, which re-freezes once you level the phone.
-// The wall clamps and the mouth-line hold still keep everything in —
-// nothing can leave the glass until Step 16.
+// Step 16 — while leaning the mouth-line hold releases (the walls still
+// hold), and a counted drop whose centre rises more than half a radius
+// above the line pours out: un-counted, cut from the replay, doomed to
+// the 0.5 s miss-fade. Levelled, the mouth shuts again and nothing can
+// leave except over the rim.
 function updateLiquid(r, dt, now, tilt) {
   const liq = liquidTriangle();
   const A = liq[0];
@@ -483,16 +489,25 @@ function updateLiquid(r, dt, now, tilt) {
     }
   }
 
-  // 3) Back inside the bowl: never poking through a sloped wall, never
-  //    above the surface line. The two constraints fight at the rim —
+  // 3) Back inside the bowl. The walls always hold; the mouth line holds
+  //    only while level — Step 16: leaning opens the rim so the drink
+  //    can pour out over it (tiltAccel's dead-band means 0,0 = level).
+  //    While the mouth is shut the two constraints fight at the rim —
   //    near a corner the wall's push points up, past the line — so
   //    alternate them a few rounds: each round slides the drop sideways
   //    out of the conflict, and the line clamp runs last, so nothing
   //    ever ends a frame outside the drink. (Settled drops were clamped
   //    every frame until they froze, and nothing moves them after that —
   //    which is why ending a frame outside would trap a drop there.)
+  const mouthHeld = tilt.x === 0 && tilt.y === 0;
   for (const d of drops) {
     if (!d.inside || d.settled) continue;
+    if (!mouthHeld) {
+      // Leaning: only the walls hold — the drink can climb out.
+      clampWall(d, r, A, C, inX, inY);
+      clampWall(d, r, B, C, inX, inY);
+      continue;
+    }
     for (let round = 0; round < 8; round++) {
       clampWall(d, r, A, C, inX, inY);
       clampWall(d, r, B, C, inX, inY);
@@ -502,14 +517,37 @@ function updateLiquid(r, dt, now, tilt) {
     }
   }
 
-  // 4) Freeze: almost still for REST_MS and the drop belongs to the
-  //    heap — one tiny squish to show it settling in.
+  // 4) Step 16 — pour it out: a counted drop whose centre has risen more
+  //    than half a radius above the line (only possible with the mouth
+  //    open; the margin keeps brim-full compression from faking a spill)
+  //    has fallen out — un-count it so the gate reopens, cut it from
+  //    every future replay (it leaves the liquid, so startReplay skips
+  //    it), and give it the miss treatment: a 0.5 s fade while it falls.
+  //    Once doomed it stays doomed — fadeStart keeps it out of the
+  //    landing rule, so drifting back in can never re-count it.
+  for (const d of drops) {
+    if (!d.inside || d.doomed) continue;
+    if (d.y < surfaceY - r * 0.5) {
+      d.doomed = true;
+      d.inside = false;
+      d.settled = false;
+      d.restMs = 0;
+      d.fadeStart = now;
+      poured--;
+    }
+  }
+
+  // 5) Freeze: almost still for REST_MS and the drop belongs to the
+  //    heap — one tiny squish to show it settling in. A drop resting
+  //    above the mouth line (possible only while the mouth is open)
+  //    waits instead: it stays awake until the level clamp brings it
+  //    back down, so nothing ever freezes outside the drink.
   for (const d of drops) {
     if (!d.inside || d.settled) continue;
     const moved = sqrt((d.x - d.fx) * (d.x - d.fx) + (d.y - d.fy) * (d.y - d.fy));
     if (moved / dt < settleSpeed) {
       d.restMs += dt * 1000;
-      if (d.restMs >= REST_MS) {
+      if (d.restMs >= REST_MS && d.y >= surfaceY) {
         d.settled = true;
         d.vx = 0;
         d.vy = 0;
@@ -564,7 +602,8 @@ function drawDrops() {
                                                     // stalled frame can't teleport a drop
   const g = fallGravity();
   const tilt = tiltAccel(); // Step 15: the lean, px/s² (0 when level)
-  const surfaceY = liquidTriangle()[0].y; // the liquid's top edge
+  const liq = liquidTriangle();
+  const surfaceY = liq[0].y; // the liquid's top edge
 
   updateLiquid(r, dt, now, tilt); // Step 13: in the liquid, everything sinks
 
@@ -575,23 +614,34 @@ function drawDrops() {
       // In the air: accelerate down — the lean bends the fall sideways
       // and adds to (or fights) the gravity a little, all with a light
       // drag so the drift steadies instead of racing away.
+      const prevY = d.y;
       d.vy += (g + tilt.y) * dt;
       d.vx += tilt.x * dt;
       d.vx -= d.vx * min(1, dt);
       d.x += d.vx * dt;
       d.y += d.vy * dt;
-      if (d.landing && d.y >= surfaceY) {
-        // Touches the liquid: counted right now, big squash — and the
-        // liquid takes over from here (updateLiquid sinks it onward).
-        d.y = surfaceY;
-        d.vy = 0;
-        d.vx = 0;
-        d.inside = true;
-        d.squashAt = now;
-        d.squashAmp = 0.35;
-        d.squashDur = 180;
-        poured++;
-        checkFull();
+      if (d.fadeStart == null) {
+        if (prevY <= surfaceY && d.y >= surfaceY &&
+            d.x > liq[0].x && d.x < liq[1].x) {
+          // Crosses the surface line inside the opening: counted right
+          // now, big squash — and the liquid takes over from here
+          // (updateLiquid sinks it onward). Step 16 watches the crossing
+          // live instead of predicting it at spawn; a doomed or already
+          // fading drop never lands, so a spill can't re-count.
+          d.y = surfaceY;
+          d.vy = 0;
+          d.vx = 0;
+          d.inside = true;
+          d.squashAt = now;
+          d.squashAmp = 0.35;
+          d.squashDur = 180;
+          poured++;
+          checkFull();
+        } else if (d.y > bowlBottomY()) {
+          // Never entered: the moment it falls below the bowl it takes
+          // the miss treatment (Step 16 — replaces Step 12's prediction).
+          d.fadeStart = now;
+        }
       }
     }
 
@@ -608,7 +658,8 @@ function drawDrops() {
     const px = d.x + sway;
     const py = d.y;
 
-    // Only drops whose path misses the glass fade away (0.5 s).
+    // Misses and spills both fade away over 0.5 s (Step 16: a doomed
+    // pour gets exactly the miss treatment).
     let alpha = 255;
     if (d.fadeStart != null) {
       const t = (now - d.fadeStart) / 500;
@@ -639,7 +690,10 @@ function drawDrops() {
 // change — no drops are added or removed. Tapping again (even mid-sweep)
 // starts it again from the top.
 function startReplay() {
-  replayQueue = drops.filter(d => d.inside).map(d => d.step);
+  // A snapshot of the notes as they stand right now: a spill (Step 16)
+  // cuts its drop from every future sweep, while a sweep already running
+  // keeps the notes it started with.
+  replayQueue = drops.filter(d => d.inside && !d.doomed).map(d => d.step);
   if (replayQueue.length === 0) return;
   replayIndex = 0;
   replaying = true;
