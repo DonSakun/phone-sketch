@@ -92,7 +92,7 @@ function setup() {
 let bgImage;
 
 function preload() {
-  bgImage = loadImage("drink-background.png");
+  bgImage = loadImage("references/drink-background.png");
 }
 
 function draw() {
