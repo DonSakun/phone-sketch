@@ -3,7 +3,8 @@
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
 // inside-grey counts / outside fades (7), the drink is done (8),
 // replay on the full glass (9), reload resets (10), laptop fallback (11),
-// drops fall into the glass (12), drops sink and pile up (13), the words (14).
+// drops fall into the glass (12), drops sink and pile up (13), the words (14),
+// the glass leans (15).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
@@ -12,6 +13,19 @@ let wordsGone = false;
 // melody replay." appears near the top — a latch, so it stays until a
 // reload even if (Step 16) drops later spill back out of the glass.
 let replayWords = false;
+
+// Step 15 — the lean. Tilt is measured as a deviation from neutral:
+// the first real sensor reading after the unlock tap is "where you were
+// holding the phone", so a phone held at a casual angle doesn't drift on
+// its own. Level back to neutral and everything settles and re-freezes.
+let neutralX = null;
+let neutralY = null;
+
+// Screen Wake Lock (the skill's pattern; not a p5-phone feature): only
+// touches reset the phone's auto-lock timer, and tilting is hands-free,
+// so ask from mouseReleased or the screen dims mid-lean.
+let wakeLock = null;
+let wantAwake = false;
 
 // Every note leaves a drop: {x, y, col, step, inside, landing, fadeStart,
 // spawnT, squashAt, squashAmp, squashDur, vx, vy, settled, restMs}. The
@@ -61,7 +75,14 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   lockGestures();
   blockSelection();
-  enableSoundTap('Tap to enable sound');
+  // Step 15: one box unlocks sound AND motion — iOS shows its motion
+  // permission dialog right after this tap (Android shows nothing).
+  enablePermissionsTap(['sensors', 'sound'], 'Tap to enable sound + motion');
+  // The browser drops the wake lock while the page is hidden; the skill's
+  // pattern asks again when it comes back (iOS only needs the first tap).
+  document.addEventListener('visibilitychange', () => {
+    if (wantAwake && document.visibilityState === 'visible') requestWakeLock();
+  });
 }
 
 function draw() {
@@ -183,7 +204,22 @@ function mouseReleased(e) {
     holding = false;
     stopNote();
   }
+  // Step 15: keep the screen on while the hands are busy tilting. iOS
+  // only counts a tap once the finger lifts, so ask here, not on press.
+  const awake = wakeLock !== null && !wakeLock.released;
+  if ('wakeLock' in navigator && !awake) {
+    wantAwake = true;
+    requestWakeLock();
+  }
   return false;
+}
+
+async function requestWakeLock() {
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+  } catch (err) {
+    // Refused (power saving, low battery, blocked iframe) — fine, skip.
+  }
 }
 
 // While holding, horizontal position picks the pentatonic step; the note
@@ -302,6 +338,41 @@ function fallPathHitsLiquid(x, y) {
   return x > a.x && x < b.x;
 }
 
+// Step 15 — how hard the screen leans right now, in px/s². Deviation
+// from neutral (the first real reading after the unlock tap), radians
+// as-is — no angleMode change, the sway formula is radians. A small
+// dead-band swallows hand jitter, then it scales with how far you lean;
+// capped at ~46° so a spin can't fling the drink. Axes follow p5's own
+// tilt idiom: rotationY -> screen x, rotationX -> screen y.
+function tiltAccel() {
+  if (!window.sensorsEnabled) return { x: 0, y: 0 };
+  const rx = rotationX;
+  const ry = rotationY;
+  if (!Number.isFinite(rx) || !Number.isFinite(ry)) return { x: 0, y: 0 };
+  if (neutralX === null) {
+    // First real reading = where you were holding the phone. Exactly
+    // (0, 0) is the pre-sensor initial value, not a posture — keep waiting.
+    if (rx !== 0 || ry !== 0) {
+      neutralX = rx;
+      neutralY = ry;
+    }
+    return { x: 0, y: 0 };
+  }
+  const k = height * 1.2; // px/s² per radian of lean — slow and heavy
+  return {
+    x: k * deadband(constrain(ry - neutralY, -0.8, 0.8)),
+    y: k * deadband(constrain(rx - neutralX, -0.8, 0.8))
+  };
+}
+
+// Ignore leans under ~4.6° (a steady hand does nothing), then grow
+// continuously from zero so crossing the line never snaps.
+function deadband(v) {
+  const a = abs(v);
+  if (a <= 0.08) return 0;
+  return (v < 0 ? -1 : 1) * (a - 0.08);
+}
+
 // Fall physics: from rest at the very top of the screen a drop reaches
 // the liquid in ~0.6 s (the plan's 0.5-0.7 s), speeding up the whole
 // way down.
@@ -318,7 +389,11 @@ function fallGravity() {
 // REST_MS — with one tiny squish as it joins the heap. The bowl's
 // sloped walls keep every whole drop inside the grey; settled drops are
 // immovable, so the pile keeps its shape while later drops build on it.
-function updateLiquid(r, dt, now) {
+// Step 15 — the lean (tilt, px/s²): it slides the whole liquid around
+// and wakes the frozen heap, which re-freezes once you level the phone.
+// The wall clamps and the mouth-line hold still keep everything in —
+// nothing can leave the glass until Step 16.
+function updateLiquid(r, dt, now, tilt) {
   const liq = liquidTriangle();
   const A = liq[0];
   const B = liq[1];
@@ -331,12 +406,26 @@ function updateLiquid(r, dt, now) {
   const drag = 3.5;                  // 1/s → terminal ≈ 0.11 × height/s
   const settleSpeed = 15;            // px/s: slower than this = at rest
 
+  // 0) Step 15: a real lean wakes the frozen heap — it slides like the
+  //    drink it is — and once you level out it settles and re-freezes
+  //    through the normal REST_MS path below.
+  if (tilt.x !== 0 || tilt.y !== 0) {
+    for (const d of drops) {
+      if (d.inside && d.settled) {
+        d.settled = false;
+        d.restMs = 0;
+      }
+    }
+  }
+
   // 1) Remember where each sinking drop started this frame, then sink it.
   for (const d of drops) {
     if (!d.inside || d.settled) continue;
     d.fx = d.x;
     d.fy = d.y;
     d.vy += sinkG * dt;
+    d.vx += tilt.x * dt; // Step 15: the lean slides the liquid sideways
+    d.vy += tilt.y * dt; // ...and adds to (or fights) the slow sink
     d.vx -= d.vx * min(1, drag * dt);
     d.vy -= d.vy * min(1, drag * dt); // drag → terminal velocity, no plunge
     d.x += d.vx * dt;
@@ -394,17 +483,23 @@ function updateLiquid(r, dt, now) {
     }
   }
 
-  // 3) Back inside the bowl: never above the surface line, never poking
-  //    through a sloped wall. (Settled drops were clamped every frame
-  //    until they froze, and nothing moves them after that.)
+  // 3) Back inside the bowl: never poking through a sloped wall, never
+  //    above the surface line. The two constraints fight at the rim —
+  //    near a corner the wall's push points up, past the line — so
+  //    alternate them a few rounds: each round slides the drop sideways
+  //    out of the conflict, and the line clamp runs last, so nothing
+  //    ever ends a frame outside the drink. (Settled drops were clamped
+  //    every frame until they froze, and nothing moves them after that —
+  //    which is why ending a frame outside would trap a drop there.)
   for (const d of drops) {
     if (!d.inside || d.settled) continue;
-    if (d.y < surfaceY) {
+    for (let round = 0; round < 8; round++) {
+      clampWall(d, r, A, C, inX, inY);
+      clampWall(d, r, B, C, inX, inY);
+      if (d.y >= surfaceY) break;
       d.y = surfaceY;
       if (d.vy < 0) d.vy = 0;
     }
-    clampWall(d, r, A, C, inX, inY);
-    clampWall(d, r, B, C, inX, inY);
   }
 
   // 4) Freeze: almost still for REST_MS and the drop belongs to the
@@ -468,16 +563,22 @@ function drawDrops() {
   const dt = max(min(deltaTime, 50) / 1000, 0.001); // seconds, capped so a
                                                     // stalled frame can't teleport a drop
   const g = fallGravity();
+  const tilt = tiltAccel(); // Step 15: the lean, px/s² (0 when level)
   const surfaceY = liquidTriangle()[0].y; // the liquid's top edge
 
-  updateLiquid(r, dt, now); // Step 13: in the liquid, everything sinks
+  updateLiquid(r, dt, now, tilt); // Step 13: in the liquid, everything sinks
 
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i];
 
     if (!d.inside) {
-      // In the air: accelerate straight down.
-      d.vy += g * dt;
+      // In the air: accelerate down — the lean bends the fall sideways
+      // and adds to (or fights) the gravity a little, all with a light
+      // drag so the drift steadies instead of racing away.
+      d.vy += (g + tilt.y) * dt;
+      d.vx += tilt.x * dt;
+      d.vx -= d.vx * min(1, dt);
+      d.x += d.vx * dt;
       d.y += d.vy * dt;
       if (d.landing && d.y >= surfaceY) {
         // Touches the liquid: counted right now, big squash — and the
