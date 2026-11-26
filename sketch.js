@@ -2,14 +2,14 @@
 // Steps so far: the screen (1), sound unlock (2), words disappearing (3),
 // note on hold (4), move changes the pitch (5), drops appear and stay (6),
 // inside-grey counts / outside fades (7), the drink is done (8),
-// replay on the full glass (9), reload resets (10), laptop fallback (11),
+// swirl to hear the replay (9), reload resets (10), laptop fallback (11),
 // drops fall into the glass (12), drops sink and pile up (13), the words (14),
 // the glass leans (15), the drink pours out (16).
 // Layout approximates references/drink-layout.png.
 
 let wordsGone = false;
 
-// Step 14: the first time the drink reads full, "Tap again to hear the
+// Step 14: the first time the drink reads full, "swirl to hear the
 // melody replay." appears near the top — a latch, so it stays until a
 // reload even if (Step 16) drops later spill back out of the glass.
 let replayWords = false;
@@ -62,18 +62,32 @@ let replaying = false;
 let replayNextAt = 0;
 
 let osc = null;
-let holding = false;
-let holdPointerId = null;
+let holding = false; // a live note is sounding (the tracked finger is pouring)
 let currentStep = 0;
+
+// Step 9 (revised) — the swirl. One finger is tracked from press to lift;
+// while it is down its path is watched for a full circle, which starts
+// the replay (a tap never does). Lifting that finger stops a running
+// sweep — hold to listen.
+let fingerDown = false;
+let fingerId = null;  // its pointerId; null = unknown (older mouse events)
+let swirlPath = [];   // recent path points {x, y, t}, windowed and step-filtered
+let tapCount = 0;     // real taps on the canvas — the hint goes on the second
+
+// Swirl thresholds, tuned by eye on the phone.
+const SWIRL_WINDOW_MS = 3000;   // finish the whole circle within ~3 s
+const SWIRL_STEP_PX = 5;        // ignore moves smaller than this (tremor)
+const SWIRL_RADIUS_FRAC = 0.07; // mean radius as a fraction of width
+const SWIRL_TURN_FRAC = 0.9;    // fire at 90 % of a full turn — a hair under
+                                // 360°, so closing the loop reliably counts
 
 // The 11 pentatonic steps of the ladder, in semitones from the base note:
 // -5 = screen's left edge (one octave down), 0 = center (base note),
 // +5 = right edge (one octave up). Every rung is a pentatonic step.
 const PENTATONIC_STEPS = [-12, -10, -8, -5, -3, 0, 2, 4, 7, 9, 12];
 
-// Fixed base note A3 — the pitch comes only from finger position (it
-// "looks random" but is really position-driven), which is also what
-// Step 6's hue wheel maps across: 110-440 Hz in total.
+// Fixed base note A3 — the pitch comes only from finger position, 
+// which is also what Step 6's hue wheel maps across: 110-440 Hz in total.
 const BASE_FREQ = 220;
 
 function setup() {
@@ -89,19 +103,14 @@ function setup() {
     if (wantAwake && document.visibilityState === 'visible') requestWakeLock();
   });
 }
-let bgImage;
-
-function preload() {
-  bgImage = loadImage("references/drink-background.png");
-}
 
 function draw() {
-  background(bgImage);
+  background(0);
   drawGlass();
   drawDrops();
-  if (!wordsGone) drawHint();
   if (replayWords) drawReplayWords(); // Step 14: from first full, for good
-  advanceReplay(); // while the glass is full, a tap sweeps through its notes
+  else if (!wordsGone) drawHint();     // the two share the one spot at the top
+  advanceReplay(); // the sweep, once a swirl has started it
 }
 
 // The glass: white body (bowl + stem + foot), with the grey liquid drawn on
@@ -178,49 +187,57 @@ function drawHint() {
 }
 
 // Step 14 — the words that appear when the glass first reads full and
-// never leave (until a reload), in the hint's spot near the top. Only
-// one of the two lines is ever up: by full, the first tap has already
-// removed the hint.
+// never leave (until a reload), in the hint's spot near the top. The two
+// lines share that one spot, so from first full the hint never draws
+// again — even if the second tap (Step 3) hasn't happened yet.
 function drawReplayWords() {
   fill(255);
   textAlign(CENTER, CENTER);
   textSize(max(14, 0.04 * width));
-  text('Tap again to hear the melody replay.', width / 2, height * 0.1);
+  text('make one swirl then hold, to hear the melody replay.', width / 2, height * 0.1);
 }
 
-// Tap anywhere and hold: remove the words (first tap only, for good) and
-// start one note at the touched position. The sound-enable box tap doesn't
-// count (its target is the overlay, not the canvas), so the words survive
-// until the first real touch — a bug that testing caught in Glass Harp.
+// Tap anywhere and hold: start one note at the touched position. The
+// hint words survive the first tap and go on the second (Step 3 as
+// revised). The sound-enable box tap doesn't count (its target is the
+// overlay, not the canvas), so the words survive until the first real
+// touch — a bug that testing caught in Glass Harp.
 // Laptop: only a left click counts as a tap; right/middle must not start
 // a note. Only the first finger counts; extra fingers are ignored.
-// When the glass is full — or a sweep is already running — a tap replays
-// the counted notes instead of pouring (Steps 9, 16: mid-sweep the
-// restart wins even if a spill has taken the count back down).
-// Return false so p5-phone keeps handling the gesture.
+// A tap never starts the replay (Step 9 revised): when the glass is full
+// the press only tracks the finger, so a swirl can still fire, and while
+// a sweep runs the sweep owns the sound. Return false so p5-phone keeps
+// handling the gesture.
 function mousePressed(e) {
   if (e && e.target && e.target !== document.querySelector('canvas')) return false;
   if (e && e.button !== undefined && e.button !== 0) return false;
-  if (replaying || poured >= FULL_COUNT) {
-    startReplay(); // full (or mid-sweep): tap = replay from the top
-    return false;
-  }
-  wordsGone = true;
-  if (!holding) {
-    holding = true;
-    holdPointerId = e && e.pointerId !== undefined ? e.pointerId : null;
-    startNote();
-  }
+  if (fingerDown) return false; // only the first finger counts
+  fingerDown = true;
+  fingerId = e && e.pointerId !== undefined ? e.pointerId : null;
+  tapCount++;
+  if (tapCount >= 2) wordsGone = true; // the hint goes on the second tap
+  swirlPath = [{ x: mouseX, y: mouseY, t: millis() }]; // watch for a circle
+  if (replaying) return false; // the sweep owns the sound right now
+  if (poured >= FULL_COUNT) return false; // full: a tap does nothing
+  holding = true;
+  startNote();
   return false;
 }
 
-// Lift (or a system cancel of the held finger) -> silence. A second
-// finger lifting changes nothing.
+// Lift (or a system cancel of the tracked finger) -> silence, and — hold
+// to listen (Step 9 as revised) — a running sweep stops at once. A
+// second finger lifting changes nothing.
 function mouseReleased(e) {
   const id = e && e.pointerId !== undefined ? e.pointerId : null;
-  if (holding && (id === null || holdPointerId === null || id === holdPointerId)) {
-    holding = false;
-    stopNote();
+  if (fingerDown && (id === null || fingerId === null || id === fingerId)) {
+    fingerDown = false;
+    fingerId = null;
+    swirlPath = [];
+    if (holding) {
+      holding = false;
+      stopNote();
+    }
+    stopReplay();
   }
   // Step 15: keep the screen on while the hands are busy tilting. iOS
   // only counts a tap once the finger lifts, so ask here, not on press.
@@ -240,21 +257,103 @@ async function requestWakeLock() {
   }
 }
 
-// While holding, horizontal position picks the pentatonic step; the note
-// slides ~100 ms to the new step and holds there until the finger moves
-// to another step. Vertical position is ignored, and a still finger
-// never changes the step, so the pitch holds steady. Other fingers are
-// ignored (only the one that started the note counts).
+// While the tracked finger moves: its path always feeds the swirl
+// detector (Step 9), and if a live note is on, horizontal position picks
+// the pentatonic step — the note slides ~100 ms to the new step and one
+// more drop is left there. While a sweep runs the sweep owns the
+// oscillator, so the step and the drops still update (they join the next
+// replay) but no frequency is written. Vertical position is ignored, a
+// still finger never changes the step, and other fingers are ignored
+// (only the tracked one counts).
 function mouseDragged(e) {
+  if (!fingerDown) return false;
+  if (e && e.pointerId !== undefined && fingerId !== null && e.pointerId !== fingerId) return false;
+  trackSwirl(mouseX, mouseY);
   if (!holding) return false;
-  if (e && e.pointerId !== undefined && holdPointerId !== null && e.pointerId !== holdPointerId) return false;
   const step = stepAt(mouseX);
   if (step !== currentStep) {
     currentStep = step;
-    osc.freq(stepFreq(step), 0.1); // ~100 ms slide between steps
-    addDrop();                     // one more drop per pitch-step change
+    if (!replaying) osc.freq(stepFreq(step), 0.1); // ~100 ms slide between steps
+    addDrop();                                      // one more drop per pitch-step change
   }
   return false;
+}
+
+// Step 9 (revised) — watching the tracked finger for a swirl. Points are
+// kept only a real step apart (a trembling finger adds nothing) and only
+// for a few seconds (a slow wander never adds up); the strongest run of
+// turning anywhere in that path is how much of a circle the finger has
+// just drawn, and a full circle — 360° either way, wide enough to read
+// as a circle rather than a scribble — starts the replay. Taking the
+// strongest run (rather than the path's total) means an awkward approach
+// stroke earlier in the path can't cancel the circle out. Firing clears
+// the path, so one circle fires once: to restart a running sweep you
+// make a new circle.
+function trackSwirl(x, y) {
+  const now = millis();
+  const path = swirlPath;
+  const last = path[path.length - 1];
+  if (last && dist(last.x, last.y, x, y) < SWIRL_STEP_PX) return; // too small to steer
+  path.push({ x: x, y: y, t: now });
+  while (path.length > 1 && now - path[0].t > SWIRL_WINDOW_MS) path.shift();
+  if (path.length < 6) return; // a circle needs a few corners
+
+  // Signed turning at each vertex, as a running total (prefix sums): the
+  // turning over any stretch of the path is then the difference of two
+  // prefixes. Walk the prefixes once, keeping the earliest extreme in
+  // each direction, and fire on the first run that both clears the
+  // circle bar and swings wide enough. Checking candidates as they end
+  // (rather than pairing the global max and min afterwards) matters: a
+  // sharp reversal elsewhere in the path — the finger doubling back —
+  // makes a huge dip in the prefixes, and pairing across that dip would
+  // measure the wrong stretch of path for the width test.
+  const turnAt = [0];
+  let acc = 0;
+  for (let i = 1; i + 1 < path.length; i++) {
+    const a = atan2(path[i].y - path[i - 1].y, path[i].x - path[i - 1].x);
+    const b = atan2(path[i + 1].y - path[i].y, path[i + 1].x - path[i].x);
+    let d = b - a;
+    while (d > PI) d -= TWO_PI;
+    while (d < -PI) d += TWO_PI;
+    acc += d;
+    turnAt.push(acc);
+  }
+
+  // Does the stretch path[lo..hi+1] swing wide enough to read as a
+  // circle? — its mean radius from its own centre, so a scribble in
+  // place never counts.
+  const wideEnough = (lo, hi) => {
+    const sub = path.slice(lo, hi + 2);
+    let cx = 0;
+    let cy = 0;
+    for (const p of sub) { cx += p.x; cy += p.y; }
+    cx /= sub.length;
+    cy /= sub.length;
+    let r = 0;
+    for (const p of sub) r += sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy));
+    return r / sub.length >= SWIRL_RADIUS_FRAC * width;
+  };
+
+  const bar = SWIRL_TURN_FRAC * TWO_PI;
+  let runMin = turnAt[0];
+  let iRunMin = 0;
+  let runMax = turnAt[0];
+  let iRunMax = 0;
+  for (let k = 1; k < turnAt.length; k++) {
+    // a run climbing (one way round) or dipping (the other way)
+    if (turnAt[k] - runMin >= bar && wideEnough(iRunMin, k)) {
+      swirlPath = []; // a fresh circle is needed to fire again
+      startReplay();
+      return;
+    }
+    if (runMax - turnAt[k] >= bar && wideEnough(iRunMax, k)) {
+      swirlPath = [];
+      startReplay();
+      return;
+    }
+    if (turnAt[k] < runMin) { runMin = turnAt[k]; iRunMin = k; }
+    if (turnAt[k] > runMax) { runMax = turnAt[k]; iRunMax = k; }
+  }
 }
 
 // One sine, reused for every note — created on first use, which is
@@ -305,8 +404,9 @@ function stepFreq(step) {
 //    never depends on where the drop lands.
 function addDrop() {
   const h = map(currentStep, -5, 5, 0, 360);
-  colorMode(HSB, 360, 100, 100);
-  const col = color(h, 75, 100);
+  colorMode(HSB, 360, 100, 100, 100);
+  const col = color(h, 75, 100, 50);
+
   colorMode(RGB, 255);
   const x = mouseX;
   const y = mouseY;
@@ -341,7 +441,7 @@ function addDrop() {
 function checkFull() {
   if (poured >= FULL_COUNT) {
     holding = false;
-    stopNote();
+    if (!replaying) stopNote(); // mid-sweep the sweep owns the sound
     replayWords = true; // Step 14: first full → the line appears for good
   }
 }
@@ -690,21 +790,32 @@ function drawDrops() {
   }
 }
 
-// A tap on the full glass replays every counted note, in the order it was
-// poured: one fast sweep through your own drink. The screen does not
-// change — no drops are added or removed. Tapping again (even mid-sweep)
-// starts it again from the top.
+// A swirl on the notes (Step 9 as revised) replays every counted note,
+// in the order it was poured: one fast sweep through your own drink. The
+// screen does not change — no drops are added or removed. A new swirl,
+// even mid-sweep, starts it again from the top; a tap never gets here.
 function startReplay() {
   // A snapshot of the notes as they stand right now: a spill (Step 16)
   // cuts its drop from every future sweep, while a sweep already running
-  // keeps the notes it started with.
-  replayQueue = drops.filter(d => d.inside && !d.doomed).map(d => d.step);
-  if (replayQueue.length === 0) return;
+  // keeps the notes it started with. Notes made during a sweep join the
+  // next one, never the running one.
+  const queue = drops.filter(d => d.inside && !d.doomed).map(d => d.step);
+  if (queue.length === 0) return; // nothing in the grey — leave it be
+  replayQueue = queue;
   replayIndex = 0;
   replaying = true;
   replayNextAt = millis();
   ensureOsc();
   osc.amp(0.3, 0.03); // fade in at the start of the sweep
+}
+
+// The tracked finger lifted: silence at once (hold to listen, Step 9).
+// Called from mouseReleased only — the sweep still ends on its own at
+// ~12 s in advanceReplay.
+function stopReplay() {
+  if (!replaying) return;
+  replaying = false;
+  if (osc) osc.amp(0, 0.05);
 }
 
 // Called every frame: fire each note when its time comes. The spacing
@@ -721,7 +832,13 @@ function advanceReplay() {
   }
   if (replayIndex >= replayQueue.length) {
     replaying = false;
-    osc.amp(0, 0.05); // silence when the sweep ends
+    if (holding) {
+      // The finger never lifted: hand the oscillator back to the live note.
+      osc.freq(stepFreq(currentStep), 0.05);
+      osc.amp(0.3, 0.05);
+    } else {
+      osc.amp(0, 0.05); // silence when the sweep ends
+    }
   }
 }
 
