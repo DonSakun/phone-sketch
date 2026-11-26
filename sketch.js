@@ -194,7 +194,7 @@ function drawReplayWords() {
   fill(255);
   textAlign(CENTER, CENTER);
   textSize(max(14, 0.04 * width));
-  text('make one swirl then hold, to hear the melody replay.', width / 2, height * 0.1);
+  text('make one swirl then hold still, to hear the melody replay :D', width / 2, height * 0.1);
 }
 
 // Tap anywhere and hold: start one note at the touched position. The
