@@ -4,8 +4,9 @@
 // inside-grey counts / outside fades (7), the drink is done (8),
 // swirl to hear the replay (9), reload resets (10), laptop fallback (11),
 // drops fall into the glass (12), drops sink and pile up (13), the words (14),
-// the glass leans (15), the drink pours out (16).
-// Layout approximates references/drink-layout.png.
+// the glass leans (15), the drink pours out (16), the background image (17).
+// Layout approximates references/drink-layout.png; the artwork behind it is
+// references/drink-background.png.
 
 let wordsGone = false;
 
@@ -90,8 +91,13 @@ const PENTATONIC_STEPS = [-12, -10, -8, -5, -3, 0, 2, 4, 7, 9, 12];
 // which is also what Step 6's hue wheel maps across: 110-440 Hz in total.
 const BASE_FREQ = 220;
 
-function setup() {
+// Step 17 — the background artwork, loaded once in setup() and drawn
+// full-height behind everything (see draw()).
+let bgImage;
+
+async function setup() {
   createCanvas(windowWidth, windowHeight);
+  background(0); // black shows while the image loads
   lockGestures();
   blockSelection();
   // Step 15: one box unlocks sound AND motion — iOS shows its motion
@@ -102,15 +108,21 @@ function setup() {
   document.addEventListener('visibilitychange', () => {
     if (wantAwake && document.visibilityState === 'visible') requestWakeLock();
   });
-}
-
-let bgImage;
-function preload() {
-  bgImage = loadImage('\references\drink-background.png');
+  // Step 17: p5 2.x loads assets here, not in preload() — await it last,
+  // so the draw loop starts only once the image is ready (frame 1 has it).
+  bgImage = await loadImage('references/drink-background.png');
 }
 
 function draw() {
   background(0);
+  // Step 17: the artwork, full height at its own aspect ratio — the width
+  // follows the height, so on a portrait phone the sides crop away evenly
+  // and nothing stretches. Recomputed each frame, so windowResized() needs
+  // nothing extra; drawn as-is (no tint, no filter) so the hue is untouched.
+  if (bgImage) {
+    const w = bgImage.width * height / bgImage.height;
+    image(bgImage, (width - w) / 2, 0, w, height);
+  }
   drawGlass();
   drawDrops();
   if (replayWords) drawReplayWords(); // Step 14: from first full, for good
