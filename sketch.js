@@ -713,7 +713,7 @@ function clampWall(d, r, P0, P1, inX, inY) {
 // size, by eye; with FULL_COUNT counted drops at this size, the grey
 // reads as a full glass.
 function dropRadius() {
-  return width * 0.037;
+  return width * 0.010;
 }
 
 function drawDrops() {
