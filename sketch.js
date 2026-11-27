@@ -104,6 +104,11 @@ function setup() {
   });
 }
 
+let bgImage;
+function preload() {
+  bgImage = loadImage('\references\drink-background.png');
+}
+
 function draw() {
   background(0);
   drawGlass();
