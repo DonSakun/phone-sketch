@@ -223,7 +223,7 @@ function drawHint() {
   fill(255);
   textAlign(CENTER, CENTER);
   textSize(max(14, 0.04 * width));
-  text('tap and hold anywhere to pour a drink', width / 2, height * 0.1);
+  text('swipe anywhere to pour a drink', width / 2, height * 0.1);
 }
 
 // Step 14 — the words that appear when the glass first reads full and
