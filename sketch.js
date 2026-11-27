@@ -4,7 +4,8 @@
 // inside-grey counts / outside fades (7), the drink is done (8),
 // swirl to hear the replay (9), reload resets (10), laptop fallback (11),
 // drops fall into the glass (12), drops sink and pile up (13), the words (14),
-// the glass leans (15), the drink pours out (16), the background image (17).
+// the glass leans (15), the drink pours out (16), the background image (17),
+// the random drop palette (18).
 // Layout approximates references/drink-layout.png; the artwork behind it is
 // references/drink-background.png.
 
@@ -30,8 +31,9 @@ let wantAwake = false;
 
 // Every note leaves a drop: {x, y, col, step, inside, fadeStart, doomed,
 // spawnT, squashAt, squashAmp, squashDur, vx, vy, settled, restMs}. The
-// color is baked in at creation (hue follows the note's pitch) and step
-// remembers the pitch for the replay. Steps 12-13: a drop that reaches
+// color is baked in at creation (it follows the note's pitch along this
+// load's palette — Step 18) and step remembers the pitch for the replay.
+// Steps 12-13: a drop that reaches
 // the liquid sinks viscously into the heap and freezes there. Step 16:
 // a drop is counted the moment it crosses the surface line inside the
 // opening (watched live, no spawn-time prediction); a counted drop that
@@ -87,9 +89,28 @@ const SWIRL_TURN_FRAC = 0.9;    // fire at 90 % of a full turn — a hair under
 // +5 = right edge (one octave up). Every rung is a pentatonic step.
 const PENTATONIC_STEPS = [-12, -10, -8, -5, -3, 0, 2, 4, 7, 9, 12];
 
-// Fixed base note A3 — the pitch comes only from finger position, 
-// which is also what Step 6's hue wheel maps across: 110-440 Hz in total.
+// Fixed base note A3 — the pitch comes only from finger position:
+// 110-440 Hz across the screen's 11 pentatonic steps.
 const BASE_FREQ = 220;
+
+// Step 18 — the drop palettes: the five gradient strips of
+// references/drops-color-randomize.png, each sampled at 11 evenly
+// spaced points across the strip (11 = the 11 pitch steps). setup()
+// picks one row at random per page load, and a drop's color is its
+// step's stop — step -5 (lowest, screen left) = the strip's left end,
+// step +5 (highest, screen right) = its right end. The colors are
+// exactly as in the image, opaque (drawDrops passes its own alpha).
+const PALETTES = [
+  ['#4C6080', '#4C6080', '#4C6A8C', '#4D83AB', '#6A86AE', '#CD839D', '#EC938A', '#F6BA79', '#F8D67E', '#FFDF9B', '#FFE1A9'],
+  ['#84404D', '#84404D', '#8C4352', '#A84D64', '#BB5973', '#D67991', '#D9C28C', '#A5E1AB', '#7EE7D6', '#A8EADC', '#BBEADC'],
+  ['#3B5080', '#3B5080', '#415F93', '#5F96E1', '#79B0FF', '#B3ABF5', '#FFABD4', '#FFB6CF', '#FFC5CD', '#FFCFCA', '#FFD2CA'],
+  ['#3179B7', '#3179B7', '#338ABC', '#3CC0C9', '#60C1C9', '#CFAFC0', '#FFAFB6', '#FFCFB4', '#FFE8B0', '#FFEAB8', '#FFEABF'],
+  ['#5F5181', '#5F5181', '#685491', '#936BDD', '#AE74E9', '#EB84E1', '#FD94BE', '#FFAE8A', '#FFB89C', '#FFC4C2', '#FFC7CD'],
+];
+
+// Which strip this load uses — picked in setup(), so every reload
+// gets a fresh palette (the drops reset with it — Step 10).
+let paletteIndex = 0;
 
 // Step 17 — the background artwork, loaded once in setup() and drawn
 // full-height behind everything (see draw()).
@@ -100,6 +121,8 @@ async function setup() {
   background(0); // black shows while the image loads
   lockGestures();
   blockSelection();
+  // Step 18: one of the five strips at random — a fresh palette each load.
+  paletteIndex = floor(random(PALETTES.length));
   // Step 15: one box unlocks sound AND motion — iOS shows its motion
   // permission dialog right after this tap (Android shows nothing).
   enablePermissionsTap(['sensors', 'sound'], 'Tap to enable sound + motion');
@@ -408,10 +431,10 @@ function stepFreq(step) {
   return BASE_FREQ * pow(2, PENTATONIC_STEPS[step + 5] / 12);
 }
 
-// One drop at the finger, colored by the note's pitch: the full hue
-// wheel (0-360°) spans the playable range — lowest note = one end,
-// highest note = the other. The color is baked into the drop now, so
-// every drop keeps its own hue forever.
+// One drop at the finger, colored by the note's pitch: this load's
+// random palette strip (Step 18) spans the playable range — lowest
+// note = the strip's left end, highest note = the right end. The color
+// is baked into the drop now, so every drop keeps its own color forever.
 // Where it spawns decides its first fate (Steps 12-13, 16):
 //  - inside the grey liquid: counted at once, then sinks into the heap;
 //  - anywhere else: it falls — counted the moment it crosses the surface
@@ -420,11 +443,8 @@ function stepFreq(step) {
 //    12's spawn-time prediction). The note plays either way — sound
 //    never depends on where the drop lands.
 function addDrop() {
-  const h = map(currentStep, -5, 5, 0, 360);
-  colorMode(HSB, 360, 100, 100, 100);
-  const col = color(h, 75, 100, 50);
+  const col = color(PALETTES[paletteIndex][currentStep + 5]);
 
-  colorMode(RGB, 255);
   const x = mouseX;
   const y = mouseY;
   const liquid = liquidTriangle();
