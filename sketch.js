@@ -45,7 +45,7 @@ let drops = [];
 // reload always takes the same amount of pouring. Tuned by eye (Step 13):
 // the dots are big, so ~50 of them — packed with only a slight squish —
 // read as a full glass; 100 would mound out of the rim.
-const FULL_COUNT = 50;
+const FULL_COUNT = 100;
 
 // A drop that has lain almost still this long is at rest: it freezes
 // into the heap (with one tiny squish). Also how a sinking drop's lazy
@@ -713,7 +713,7 @@ function clampWall(d, r, P0, P1, inX, inY) {
 // size, by eye; with FULL_COUNT counted drops at this size, the grey
 // reads as a full glass.
 function dropRadius() {
-  return width * 0.010;
+  return width * 0.018;
 }
 
 function drawDrops() {
